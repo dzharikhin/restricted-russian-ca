@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ограниченный сертификат минцифры — генератор</title>
+<style>
+  :root { --bg:#0e1420; --card:#171f2e; --line:#2a3548; --fg:#e6ebf4; --dim:#93a1b8; --accent:#4d83fa; --ok:#2dc36a; --bad:#e11432; --warn:#f8b200; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--fg); padding:24px 16px 64px; }
+  main { max-width:860px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:28px 0 10px; }
+  p.dim, .dim { color:var(--dim); }
+  code { background:#0b101a; border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:13px; }
+  pre { background:#0b101a; border:1px solid var(--line); border-radius:6px; padding:10px 12px; overflow-x:auto; font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-top:16px; }
+  label { display:block; font-weight:600; margin:14px 0 6px; }
+  textarea { width:100%; min-height:130px; background:#0b101a; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:10px; font:13px ui-monospace,monospace; }
+  input[type=number] { width:180px; background:#0b101a; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+  .filebox { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:10px 18px; font-size:15px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.secondary { background:#243149; }
+  .status { margin-top:14px; padding:10px 12px; border-radius:6px; display:none; white-space:pre-wrap; font-size:13px; }
+  .status.ok { display:block; background:#12301f; border:1px solid #1d5d3a; }
+  .status.bad { display:block; background:#301217; border:1px solid #5d1d2a; }
+  .status.busy { display:block; background:#232f46; border:1px solid var(--line); color:var(--dim); }
+  .results table { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px; }
+  .results td, .results th { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  .fp { font-family:ui-monospace,monospace; word-break:break-all; color:var(--dim); font-size:12px; }
+  .dl { margin:6px 0; }
+  .dl a { color:var(--accent); font-weight:600; text-decoration:none; }
+  details { margin-top:10px; border:1px solid var(--line); border-radius:6px; padding:8px 12px; }
+  summary { cursor:pointer; font-weight:600; }
+  .warn { background:#2d2308; border:1px solid #6d5510; border-radius:6px; padding:10px 12px; margin-top:12px; font-size:13px; }
+  .check { font-weight:700; }
+  .check.ok { color:var(--ok); }
+  .check.bad { color:var(--bad); }
+  .hint { font-size:12.5px; color:var(--dim); margin-top:4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ограниченный сертификат минцифры</h1>
+  <p class="dim">Личный root CA + name-constrained proxy корня «Russian Trusted Root CA».
+  Доверие минцифре только для доменов из вашего списка. Всё генерируется локально в браузере —
+  ключи никуда не отправляются. <a style="color:var(--accent)" href="https://github.com/">project.md</a></p>
+
+  <div class="card">
+    <label for="domains">Домены, которым доверяем сертификат минцифры</label>
+    <textarea id="domains" spellcheck="false" placeholder="gosuslugi.ru&#10;cbr.ru"></textarea>
+    <div class="hint">По одному в строке; поддомены включаются автоматически (gosuslugi.ru покрывает и www.gosuslugi.ru). Комментарии после # игнорируются.</div>
+
+    <label for="days">Срок действия, дней (необязательно)</label>
+    <input id="days" type="number" min="1" max="36500" placeholder="пусто = бессрочно">
+    <div class="hint">По умолчанию сертификаты выпускаются бессрочными (до 9999-12-31).</div>
+
+    <label for="rootfile">Свой root (необязательно)</label>
+    <div class="filebox">
+      <input type="file" id="rootfile" accept=".pem,.crt,.key,.txt">
+      <button class="secondary" id="clearfile" type="button">Очистить</button>
+    </div>
+    <div class="hint">Файл root.pem из прошлой генерации (приватный ключ + сертификат). Если не указан — будет создан новый root. Если NC вашего root не покрывает новый список доменов — сертификат root будет перевыпущен на том же ключе.</div>
+
+    <div style="margin-top:18px"><button id="go" type="button">Сгенерировать</button></div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div id="results" class="results card" style="display:none">
+    <h2 style="margin-top:0">Результат</h2>
+    <table id="summary"></table>
+    <div id="downloads"></div>
+    <div class="warn"><b>Сохраните root.pem!</b> Файл содержит приватный ключ вашего CA.
+    Потеряете — новая генерация потребует новый root и переустановку сертификатов на всех устройствах.
+    Храните файл в безопасном месте; при необходимости защитите паролем (age / 7z / зашифрованный архив).</div>
+    <h2>Проверки</h2>
+    <table id="checks"></table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Установка (после скачивания файлов)</h2>
+    <p class="dim">Скачайте файлы и выполните команды. Замените пути на свои.</p>
+    <details open><summary>Linux (openssl / ca-certificates)</summary>
+      <pre>sudo cp root.crt /usr/local/share/ca-certificates/restricted-ru-root.crt
+sudo cp proxy.crt /usr/local/share/ca-certificates/restricted-ru-proxy.crt
+sudo update-ca-certificates</pre>
+      <p class="hint">Firefox использует собственное хранилище: настройте корпоративную политику <code>policies.json</code> с <code>"certificates": {"Install": ["/path/root.crt", "/path/proxy.crt"]}</code> или импортируйте через <code>certutil -d db:</code>.</p>
+    </details>
+    <details><summary>Windows (cmd от администратора)</summary>
+      <pre>certutil -addstore -f Root root.crt
+certutil -addstore -f CA proxy.crt</pre>
+    </details>
+    <details><summary>macOS</summary>
+      <pre>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain root.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain proxy.crt</pre>
+    </details>
+    <details><summary>Удаление</summary>
+      <p>Linux: удалите <code>/usr/local/share/ca-certificates/restricted-ru-*.crt</code> и запустите <code>sudo update-ca-certificates --fresh</code>. Windows: <code>certutil -delstore Root "restricted-russian-ca Personal Root"</code> и удалите proxy из промежуточного хранилища. macOS: <code>sudo security delete-certificate -c "restricted-russian-ca"</code>.</p>
+    </details>
+    <h2>Как это работает</h2>
+    <p class="dim">Оригинальный рут минцифры <b>не устанавливается</b>. Вместо него ставятся:
+    ваш личный root и proxy-сертификат, в котором скопированы имя и публичный ключ рута минцифры,
+    но подписан он вашим root и содержит критическое расширение <code>nameConstraints</code>:
+    доверие только DNS-именам из вашего списка, IP-сертификаты исключены.
+    Сайты вне списка будут отклоняться с ошибкой сертификата — это ожидаемое поведение.</p>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+/* ---------- embedded data (offline fallback, same as repo files) ---------- */
+
+const EMBEDDED_DOMAINS = ["gosuslugi.ru", "cbr.ru", "vtb.ru"];
+
+const EMBEDDED_UPSTREAM_PEM = `-----BEGIN CERTIFICATE-----
+MIIFwjCCA6qgAwIBAgICEAAwDQYJKoZIhvcNAQELBQAwcDELMAkGA1UEBhMCUlUx
+
+PzA9BgNVBAoMNlRoZSBNaW5pc3RyeSBvZiBEaWdpdGFsIERldmVsb3BtZW50IGF
+u
+ZCBDb21tdW5pY2F0aW9uczEgMB4GA1UEAwwXUnVzc2lhbiBUcnVzdGVkIFJvb3
+Qg
+Q0EwHhcNMjIwMzAxMjEwNDE1WhcNMzIwMjI3MjEwNDE1WjBwMQswCQYDVQQGE
+wJS
+VTE/MD0GA1UECgw2VGhlIE1pbmlzdHJ5IG9mIERpZ2l0YWwgRGV2ZWxvcG1l
+bnQg
+YW5kIENvbW11bmljYXRpb25zMSAwHgYDVQQDDBdSdXNzaWFuIFRydXN0ZWQ
+gUm9v
+dCBDQTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAMfFOZ8pUA
+L3+r2n
+qqE0Zp52selXsKGFYoG0GM5bwz1bSFtCt+AZQMhkWQheI3poZAToYJu69
+pHLKS6Q
+XBiwBC1cvzYmUYKMYZC7jE5YhEU2bSL0mX7NaMxMDmH2/NwuOVRj8OIm
+Va5s1F4U
+zn4Kv3PFlDBjjSjXKVY9kmjUBsXQrIHeaqmUIsPIlNWUnimXS0I0abE
+xqkbdrXbX
+YwCOXhOO2pDUx3ckmJlCMUGacUTnylyQW2VsJIyIGA8V0xzdaeUXg0
+VZ6ZmNUr5Y
+Ber/EAOLPb8NYpsAhJe2mXjMB/J9HNsoFMBFJ0lLOT/+dQvjbdRZo
+OT8eqJpWnVD
+U+QL/qEZnz57N88OWM3rabJkRNdU/Z7x5SFIM9FrqtN8xewsiBWB
+I0K6XFuOBOTD
+4V08o4TzJ8+Ccq5XlCUW2L48pZNCYuBDfBh7FxkB7qDgGDiaftE
+kZZfApRg2E+M9
+G8wkNKTPLDc4wH0FDTijhgxR3Y4PiS1HL2Zhw7bD3CbslmEGgf
+nnZojNkJtcLeBH
+BLa52/dSwNU4WWLubaYSiAmA9IUMX1/RpfpxOxd4Ykmhz97oF
+bUaDJFipIggx5sX
+ePAlkTdWnv+RWBxlJwMQ25oEHmRguNYf4Zr/Rxr9cS93Y+md
+XIZaBEE0KS2iLRqa
+OiWBki9IMQU4phqPOBAaG7A+eP8PAgMBAAGjZjBkMB0GA1U
+dDgQWBBTh0YHlzlpf
+BKrS6badZrHF+qwshzAfBgNVHSMEGDAWgBTh0YHlzlpfBK
+rS6badZrHF+qwshzAS
+BgNVHRMBAf8ECDAGAQH/AgEEMA4GA1UdDwEB/wQEAwIBh
+jANBgkqhkiG9w0BAQsF
+AAOCAgEAALIY1wkilt/urfEVM5vKzr6utOeDWCUczmWX
+/RX4ljpRdgF+5fAIS4vH
+tmXkqpSCOVeWUrJV9QvZn6L227ZwuE15cWi8DCDal3U
+e90WgAJJZMfTshN4OI8cq
+W9E4EG9wglbEtMnObHlms8F3CHmrw3k6KmUkWGoa+/
+ENmcVl68u/cMRl1JbW2bM+
+/3A+SAg2c6iPDlehczKx2oa95QW0SkPPWGuNA/CE8
+CpyANIhu9XFrj3RQ3EqeRcS
+AQQod1RNuHpfETLU/A2gMmvn/w/sx7TB3W5BPs6r
+prOA37tutPq9u6FTZOcG1Oqj
+C/B7yTqgI7rbyvox7DEXoX7rIiEqyNNUguTk/u3
+SZ4VXE2kmxdmSh3TQvybfbnXV
+4JbCZVaqiZraqc7oZMnRoWrXRG3ztbnbes/9qh
+RGI7PqXqeKJBztxRTEVj8ONs1d
+WN5szTwaPIvhkhO3CO5ErU2rVdUr89wKpNXbB
+ODFKRtgxUT70YpmJ46VVaqdAhOZ
+D9EUUn4YaeLaS8AjSF/h7UkjOibNc4qVDiPP
++rkehFWM66PVnP1Msh93tc+taIfC
+EYVMxjh8zNbFuoc7fzvvrFILLe7ifvEIUqS
+VIC/AzplM/Jxw7buXFeGP1qVCBEHq
+391d/9RAfaZ12zkwFsl+IKwE/OZxW8AHa9
+i1p4GO0YSNuczzEm4=
+-----END CERTIFICATE-----`;
+
+const EMBEDDED_UPSTREAM_SHA256 = "D26D2D0231B7C39F92CC738512BA54103519E4405D68B5BD703E9788CA8ECF31";
+
+/* ---------- DER encoding ---------- */
+
+function b64d(s) {
+  const bin = atob(s.replace(/\s+/g, ""));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function b64e(bytes) {
+  let bin = "";
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin);
+}
+
+function hexToBytes(hex) {
+  const clean = hex.replace(/[^0-9a-fA-F]/g, "");
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  return out;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(":").toUpperCase();
+}
+
+function encLen(n) {
+  if (n < 128) return new Uint8Array([n]);
+  const out = [];
+  let v = n;
+  while (v > 0) { out.unshift(v & 0xff); v >>= 8; }
+  return new Uint8Array([0x80 | out.length, ...out]);
+}
+
+function tlv(tag, content) {
+  const t = typeof tag === "number" ? new Uint8Array([tag]) : tag;
+  const l = encLen(content.length);
+  const out = new Uint8Array(t.length + l.length + content.length);
+  out.set(t, 0); out.set(l, t.length); out.set(content, t.length + l.length);
+  return out;
+}
+
+function seq(...parts) { return tlv(0x30, concat(parts)); }
+function intFromBytes(b) {
+  let i = 0;
+  while (i < b.length && b[i] === 0) i++;
+  b = b.slice(i);
+  if (!b.length) return new Uint8Array([0x02, 0x01, 0x00]);
+  if (b[0] & 0x80) b = new Uint8Array([0, ...b]);
+  return tlv(0x02, b);
+}
+function oidToBytes(oid) {
+  const parts = oid.split(".").map(Number);
+  const out = [parts[0] * 40 + parts[1]];
+  for (let i = 2; i < parts.length; i++) {
+    let v = parts[i], chunk = [v & 0x7f];
+    v >>= 7;
+    while (v > 0) { chunk.unshift((v & 0x7f) | 0x80); v >>= 7; }
+    out.push(...chunk);
+  }
+  return new Uint8Array(out);
+}
+function concat(arrs) {
+  const len = arrs.reduce((s, a) => s + a.length, 0);
+  const out = new Uint8Array(len);
+  let off = 0;
+  arrs.forEach(a => { out.set(a, off); off += a.length; });
+  return out;
+}
+function u8(...bytes) { return new Uint8Array(bytes); }
+
+const OID = {
+  CN: "2.5.4.3", O: "2.5.4.10", C: "2.5.4.6",
+  ecPublicKey: "1.2.840.10045.2.1", prime256v1: "1.2.840.10045.3.1.7",
+  ecdsaWithSHA256: "1.2.840.10045.4.3.2",
+  basicConstraints: "2.5.29.19", keyUsage: "2.5.29.15",
+  nameConstraints: "2.5.29.30", ski: "2.5.29.14", aki: "2.5.29.35",
+};
+
+function encName(rdns) {
+  return seq(...rdns.map(([oid, val]) =>
+    tlv(0x31, seq(tlv(0x06, oidToBytes(oid)), tlv(0x0c, new TextEncoder().encode(val))))));
+}
+
+function encTime(d) {
+  const y = d.getUTCFullYear();
+  const p = (n) => String(n).padStart(2, "0");
+  if (y >= 2050 || y < 1950) {
+    return tlv(0x18, new TextEncoder().encode(`${y}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`));
+  }
+  return tlv(0x17, new TextEncoder().encode(`${String(y).slice(2)}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`));
+}
+
+function encValid(days) {
+  const now = new Date();
+  const until = days ? new Date(now.getTime() + days * 86400000) : new Date("9999-12-31T23:59:59Z");
+  return seq(encTime(now), encTime(until));
+}
+
+function extSeq(oid, critical, value) {
+  const parts = [tlv(0x06, oidToBytes(oid))];
+  if (critical) parts.push(u8(0x01, 0x01, 0xff));
+  parts.push(tlv(0x04, value));
+  return seq(...parts);
+}
+
+function extBasicConstraints(pathlen) {
+  const inner = concat([u8(0x01, 0x01, 0xff), intFromBytes(new Uint8Array([pathlen]))]);
+  return extSeq(OID.basicConstraints, true, seq(inner));
+}
+
+function extKeyUsage() {
+  return extSeq(OID.keyUsage, true, u8(0x03, 0x02, 0x01, 0x06));
+}
+
+function extNameConstraints(domains) {
+  const dnsSubtrees = domains.map(d => seq(tlv(0x82, new TextEncoder().encode(d))));
+  const ipSubtrees = [seq(tlv(0x87, u8(0, 0, 0, 0))), seq(tlv(0x87, new Uint8Array(16)))];
+  const nc = seq(tlv(0xa0, seq(...dnsSubtrees)), tlv(0xa1, seq(...ipSubtrees)));
+  return extSeq(OID.nameConstraints, true, nc);
+}
+
+function extSki(keyid) { return extSeq(OID.ski, false, tlv(0x04, keyid)); }
+function extAki(keyid) { return extSeq(OID.aki, false, seq(tlv(0x80, keyid))); }
+
+/* ---------- DER decoding (minimal) ---------- */
+
+function readTLV(buf, pos) {
+  if (pos >= buf.length) throw new Error("DER: out of bounds");
+  let tag = buf[pos++];
+  if ((tag & 0x1f) === 0x1f) throw new Error("DER: multi-byte tags unsupported");
+  let len = buf[pos++];
+  if (len & 0x80) {
+    const n = len & 0x7f;
+    if (n > 4) throw new Error("DER: length too big");
+    len = 0;
+    for (let i = 0; i < n; i++) len = (len << 8) | buf[pos++];
+  }
+  return { tag, start: pos, end: pos + len, next: pos + len };
+}
+
+function children(buf, t) {
+  const out = [];
+  let p = t.start;
+  while (p < t.end) {
+    const c = readTLV(buf, p);
+    out.push(c);
+    p = c.next;
+  }
+  return out;
+}
+
+function derSlice(buf, t) { return buf.slice(t.start, t.end); }
+
+function parseCert(der) {
+  const top = readTLV(der, 0);
+  if (top.tag !== 0x30) throw new Error("DER: not a certificate");
+  const parts = children(der, top);
+  if (parts.length < 3) throw new Error("DER: malformed certificate");
+  const tbs = readTLV(der, parts[0].start);
+  const tbsParts = children(der, tbs);
+  let i = 0;
+  if ((tbsParts[i].tag & 0xa0) === 0xa0) i++;
+  const serial = tbsParts[i++];
+  const sigAlg = tbsParts[i++];
+  const issuer = tbsParts[i++];
+  const validity = tbsParts[i++];
+  const subject = tbsParts[i++];
+  const spki = tbsParts[i++];
+  const exts = {};
+  let raw = { tbsStart: tbs.start, tbsEnd: tbs.end, sigStart: parts[2].start, sigEnd: parts[2].end };
+  if (i < tbsParts.length && tbsParts[i].tag === 0xa3) {
+    const extSeqT = children(der, tbsParts[i])[0];
+    for (const e of children(der, extSeqT)) {
+      const f = children(der, e);
+      const oidT = f[0];
+      let j = 1;
+      let critical = false;
+      if (f[j].tag === 0x01) { critical = der[f[j].start] !== 0; j++; }
+      const valT = f[j];
+      exts[oidText(der.slice(oidT.start, oidT.end))] = { critical, value: derSlice(der, valT) };
+    }
+  }
+  const res = {
+    der, tbs: der.slice(raw.tbsStart, raw.tbsEnd),
+    issuer: derSlice(der, issuer), subject: derSlice(der, subject),
+    spki: derSlice(der, spki), validity: derSlice(der, validity),
+    sig: der.slice(raw.sigStart + 1, raw.sigEnd),
+    exts,
+  };
+  const bc = res.exts[OID.basicConstraints];
+  res.isCA = bc ? containsTrue(bc.value) : false;
+  const nc = res.exts[OID.nameConstraints];
+  res.nc = nc ? parseNC(nc.value) : null;
+  return res;
+}
+
+function oidText(derOid) {
+  const b = derOid;
+  const out = [Math.floor(b[0] / 40), b[0] % 40];
+  let v = 0;
+  for (let i = 1; i < b.length; i++) {
+    v = (v << 7) | (b[i] & 0x7f);
+    if (!(b[i] & 0x80)) { out.push(v); v = 0; }
+  }
+  return out.join(".");
+}
+
+function containsTrue(extValue) {
+  const t = readTLV(extValue, 0);
+  for (const c of children(extValue, t)) {
+    if (c.tag === 0x01) return extValue[c.start] !== 0;
+  }
+  return false;
+}
+
+function parseNC(extValue) {
+  const t = readTLV(extValue, 0);
+  const res = { dns: [], ip4excluded: false, ip6excluded: false };
+  for (const subtreeList of children(extValue, t)) {
+    const kind = subtreeList.tag;
+    for (const gs of children(extValue, subtreeList)) {
+      const gn = children(extValue, gs)[0];
+      if (gn.tag === 0x82) {
+        const s = new TextDecoder().decode(extValue.slice(gn.start, gn.end));
+        if (kind === 0xa0) res.dns.push(s);
+      } else if (gn.tag === 0x87) {
+        const n = gn.end - gn.start;
+        if (kind === 0xa1 && n === 4) res.ip4excluded = true;
+        if (kind === 0xa1 && n === 16) res.ip6excluded = true;
+      }
+    }
+  }
+  return res;
+}
+
+function decodeTime(t) {
+  const s = new TextDecoder().decode(t);
+  const m = s.match(/^(\d{2}|\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/);
+  if (!m) return s;
+  let year = m[1].length === 4 ? +m[1] : 2000 + +m[1];
+  return `${year}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]} UTC`;
+}
+
+function parseValidity(v) {
+  const t = readTLV(v, 0);
+  const c = children(v, t);
+  return { notBefore: decodeTime(v.slice(c[0].start, c[0].end)), notAfter: decodeTime(v.slice(c[1].start, c[1].end)) };
+}
+
+/* ---------- signatures & keys ---------- */
+
+async function sha(bytes, alg = "SHA-256") {
+  const d = await crypto.subtle.digest(alg, bytes);
+  return new Uint8Array(d);
+}
+
+function keyIdFromSpki(spkiDer) {
+  const spki = readTLV(spkiDer, 0);
+  const parts = children(spkiDer, spki);
+  const bitString = parts[1];
+  const unused = spkiDer[bitString.start];
+  const keyBytes = spkiDer.slice(bitString.start + 1, bitString.end);
+  void unused;
+  return sha(keyBytes, "SHA-1");
+}
+
+function rawSigToDer(raw) {
+  const r = raw.slice(0, raw.length / 2), s = raw.slice(raw.length / 2);
+  const mk = (b) => {
+    let i = 0;
+    while (i < b.length && b[i] === 0) i++;
+    let v = b.slice(i);
+    if (!v.length) v = new Uint8Array([0]);
+    if (v[0] & 0x80) v = new Uint8Array([0, ...v]);
+    return tlv(0x02, v);
+  };
+  return seq(mk(r), mk(s));
+}
+
+async function ecdsaSign(privKey, data) {
+  const raw = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, privKey, data));
+  return rawSigToDer(raw);
+}
+
+async function ecdsaVerify(pubKey, sigDer, data) {
+  const t = readTLV(sigDer, 0);
+  const parts = children(sigDer, t);
+  const readInt = (x) => {
+    let b = sigDer.slice(x.start, x.end);
+    let i = 0;
+    while (i < b.length && b[i] === 0) i++;
+    b = b.slice(i);
+    const out = new Uint8Array(32);
+    out.set(b.slice(-32), 32 - Math.min(b.length, 32));
+    return out;
+  };
+  const raw = concat([readInt(parts[0]), readInt(parts[1])]);
+  return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pubKey, raw, data);
+}
+
+/* ---------- certificate building ---------- */
+
+function buildTbs({ serial, issuer, subject, validity, spkiDer, extensions }) {
+  const sigAlg = seq(tlv(0x06, oidToBytes(OID.ecdsaWithSHA256)));
+  const exts = seq(...extensions);
+  return seq(
+    tlv(0xa0, intFromBytes(new Uint8Array([2]))),
+    intFromBytes(serial),
+    sigAlg,
+    issuer,
+    validity,
+    subject,
+    spkiDer,
+    tlv(0xa3, exts),
+  );
+}
+
+async function buildCert({ key, issuerDer, subjectDer, spkiDer, extensions }) {
+  const serial = new Uint8Array(16);
+  crypto.getRandomValues(serial);
+  serial[0] &= 0x7f;
+  const tbs = buildTbs({ serial, issuer: issuerDer, subject: subjectDer, validity: encValid(state.days), spkiDer, extensions });
+  const sig = await ecdsaSign(key, tbs);
+  const sigAlg = seq(tlv(0x06, oidToBytes(OID.ecdsaWithSHA256)));
+  return { tbs, cert: seq(tbs, sigAlg, tlv(0x03, concat([u8(0), sig]))), sig };
+}
+
+async function buildRootCert(key, spkiDer, domains) {
+  const dn = encName([[OID.CN, "restricted-russian-ca Personal Root"], [OID.O, "restricted-russian-ca"]]);
+  const keyid = await keyIdFromSpki(spkiDer);
+  return buildCert({
+    key,
+    issuerDer: dn, subjectDer: dn, spkiDer,
+    extensions: [extBasicConstraints(2), extKeyUsage(), extSki(keyid), extNameConstraints(domains)],
+  });
+}
+
+async function buildProxyCert(rootKey, rootCertParsed, upstream, domains) {
+  const keyid = await keyIdFromSpki(rootCertParsed.spki);
+  return buildCert({
+    key: rootKey,
+    issuerDer: rootCertParsed.subject,
+    subjectDer: upstream.subject,
+    spkiDer: upstream.spki,
+    extensions: [extBasicConstraints(1), extKeyUsage(), extSki(await keyIdFromSpki(upstream.spki)), extAki(keyid), extNameConstraints(domains)],
+  });
+}
+
+/* ---------- domains ---------- */
+
+function normalizeDomains(text) {
+  const out = [];
+  for (const raw of text.split("\n")) {
+    let line = raw.split("#", 1)[0].trim();
+    if (!line) continue;
+    if (line.startsWith("*.")) line = line.slice(2);
+    line = line.replace(/\.$/, "").toLowerCase();
+    let puny = line;
+    if (/[^\x00-\x7f]/.test(line) || !/^[a-z0-9.-]+$/.test(line)) {
+      try { puny = new URL("http://" + line).hostname; } catch { throw new Error(`некорректный домен: ${raw.trim()}`); }
+    }
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(puny)) throw new Error(`некорректный домен: ${raw.trim()}`);
+    if (!out.includes(puny)) out.push(puny);
+  }
+  if (!out.length) throw new Error("список доменов пуст");
+  return out;
+}
+
+function domainCovered(d, permitted) {
+  return permitted.some(p => d === p || d.endsWith("." + p));
+}
+
+/* ---------- upstream ---------- */
+
+async function sha256Hex(bytes) {
+  return (await sha(bytes)).reduce((s, b) => s + b.toString(16).padStart(2, "0"), "").toUpperCase();
+}
+
+async function loadUpstream() {
+  let pem = null, source = "";
+  try {
+    const r = await fetch("./pinned/mincifry-root.crt");
+    if (r.ok) { pem = await r.text(); source = "файл репозитория"; }
+  } catch { }
+  if (pem === null) {
+    pem = EMBEDDED_UPSTREAM_PEM;
+    source = "встроенная копия";
+    try {
+      const r = await fetch("./pinned-fingerprints.json");
+      if (r.ok) {
+        const j = await r.json();
+        const remote = j.mincifry_root?.sha256;
+        if (remote && remote !== EMBEDDED_UPSTREAM_SHA256) {
+          setStatus(`ВНИМАНИЕ: fingerprint рута в репозитории (${remote}) отличается от встроенного (${EMBEDDED_UPSTREAM_SHA256}). Страница может быть устаревшей.`, "bad");
+        }
+      }
+    } catch { }
+  }
+  const body = pem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/);
+  if (!body) throw new Error("не удалось прочитать сертификат рута минцифры");
+  const der = b64d(body[1]);
+  const hash = await sha256Hex(der);
+  if (hash !== EMBEDDED_UPSTREAM_SHA256) {
+    throw new Error(`сертификат рута минцифры не прошёл проверку отпечатка!\nожидался ${EMBEDDED_UPSTREAM_SHA256}\nполучен  ${hash}\nисточник: ${source}`);
+  }
+  const parsed = parseCert(der);
+  return { der, parsed, subject: parsed.subject, spki: parsed.spki, spkiHash: await sha256Hex(parsed.spki), source, hash };
+}
+
+/* ---------- page state & UI ---------- */
+
+const state = { days: 0, upstream: null };
+
+function setStatus(msg, kind) {
+  const el = document.getElementById("status");
+  el.className = "status " + (kind || "");
+  el.textContent = msg;
+}
+
+function checkRow(name, ok, detail) {
+  return `<tr><td class="check ${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"}</td><td>${name}${detail ? ` — <span class="dim">${detail}</span>` : ""}</td></tr>`;
+}
+
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "application/octet-stream" }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function pemWrap(label, b64) {
+  const lines = b64.match(/.{1,64}/g).join("\n");
+  return `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----\n`;
+}
+
+function derPem(der) { return pemWrap("CERTIFICATE", b64e(der)); }
+
+document.getElementById("clearfile").onclick = () => {
+  document.getElementById("rootfile").value = "";
+};
+
+document.getElementById("go").onclick = async () => {
+  const btn = document.getElementById("go");
+  btn.disabled = true;
+  try {
+    setStatus("Генерация…", "busy");
+    const domains = normalizeDomains(document.getElementById("domains").value);
+    const daysRaw = document.getElementById("days").value.trim();
+    state.days = daysRaw ? Math.max(1, parseInt(daysRaw, 10)) : 0;
+
+    const upstream = await loadUpstream();
+    state.upstream = upstream;
+
+    const fileInput = document.getElementById("rootfile");
+    let key, rootParsed, rootDer = null, reused = false, spkiDer;
+    if (fileInput.files.length) {
+      const text = await fileInput.files[0].text();
+      const keyBlock = text.match(/-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----([\s\S]*?)-----END (?:[A-Z ]*PRIVATE KEY)-----/);
+      const certBlock = text.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/);
+      if (!keyBlock || !certBlock) throw new Error("в файле root.pem должны быть приватный ключ и сертификат");
+      key = await importPkcs8(b64d(keyBlock[1]));
+      rootDer = b64d(certBlock[1]);
+      rootParsed = parseCert(rootDer);
+      if (!rootParsed.isCA) throw new Error("сертификат в root.pem не является CA");
+      const pubVerify = await crypto.subtle.importKey("spki", rootParsed.spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+      const probe = new Uint8Array(32);
+      crypto.getRandomValues(probe);
+      if (!(await ecdsaVerify(pubVerify, await ecdsaSign(key, probe), probe))) {
+        throw new Error("ключ и сертификат в root.pem не совпадают");
+      }
+      spkiDer = rootParsed.spki;
+      const nc = rootParsed.nc;
+      const covered = nc && domains.every(d => domainCovered(d, nc.dns)) && nc.ip4excluded && nc.ip6excluded;
+      reused = covered && !state.days;
+      setStatus(reused
+        ? "Существующий root покрывает список доменов — переиспользуется."
+        : "Сертификат root перевыпускается на том же ключе (NC не покрывает новый список или задан срок действия).", "busy");
+    } else {
+      const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+      key = pair.privateKey;
+      spkiDer = new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey));
+      const built = await buildRootCert(key, spkiDer, domains);
+      rootDer = built.cert;
+      rootParsed = parseCert(rootDer);
+    }
+
+    if (!reused) {
+      const built = await buildRootCert(key, spkiDer, domains);
+      rootDer = built.cert;
+      rootParsed = parseCert(rootDer);
+    }
+
+    const proxy = await buildProxyCert(key, rootParsed, upstream, domains);
+
+    /* self-checks */
+    const checks = [];
+    const proxyParsed = parseCert(proxy.cert);
+    const rootPub = await crypto.subtle.importKey("spki", rootParsed.spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    checks.push(["Подпись root корректна (self-signature)", await ecdsaVerify(rootPub, rootParsed.sig, rootParsed.tbs)]);
+    checks.push(["Подпись proxy корректна (подписан вашим root)", await ecdsaVerify(rootPub, proxyParsed.sig, proxyParsed.tbs)]);
+    const proxySpkiHash = await sha256Hex(proxyParsed.spki);
+    checks.push(["Публичный ключ proxy = публичный ключ рута минцифры", proxySpkiHash === upstream.spkiHash]);
+    const ncOk = proxyParsed.nc && domains.every(d => domainCovered(d, proxyParsed.nc.dns)) && proxyParsed.nc.ip4excluded && proxyParsed.nc.ip6excluded;
+    checks.push(["nameConstraints proxy покрывает все домены, IP исключены", ncOk]);
+    checks.push(["Отпечаток рута минцифры совпадает с запиненным", upstream.hash === EMBEDDED_UPSTREAM_SHA256, `источник: ${upstream.source}`]);
+
+    const allOk = checks.every(c => c[1]);
+
+    const rootCertPem = derPem(rootDer);
+    const proxyPem = derPem(proxy.cert);
+    const pkcs8 = await crypto.subtle.exportKey("pkcs8", key);
+    const rootPem = pemWrap("PRIVATE KEY", b64e(new Uint8Array(pkcs8))) + "\n" + rootCertPem;
+
+    const rootHash = await sha256Hex(rootDer);
+    const proxyHash = await sha256Hex(proxy.cert);
+    const v = parseValidity(rootParsed.validity);
+
+    document.getElementById("checks").innerHTML = checks.map(c => checkRow(c[0], c[1], c[2] || "")).join("");
+    document.getElementById("summary").innerHTML = `
+      <tr><th colspan="2">Root CA</th></tr>
+      <tr><td>subject</td><td class="fp">CN=restricted-russian-ca Personal Root, O=restricted-russian-ca</td></tr>
+      <tr><td>действует</td><td>${v.notBefore} — ${v.notAfter}</td></tr>
+      <tr><td>SHA256</td><td class="fp">${rootHash}</td></tr>
+      <tr><th colspan="2">Proxy (ограниченный рут минцифры)</th></tr>
+      <tr><td>subject</td><td class="fp">CN=Russian Trusted Root CA, O=The Ministry of Digital Development and Communications, C=RU</td></tr>
+      <tr><td>nameConstraints</td><td class="fp">DNS: ${domains.join(", ")}; IP excluded</td></tr>
+      <tr><td>SHA256</td><td class="fp">${proxyHash}</td></tr>
+      <tr><th colspan="2">Рут минцифры (запиненный, НЕ устанавливается)</th></tr>
+      <tr><td>SHA256</td><td class="fp">${upstream.hash}</td></tr>`;
+
+    document.getElementById("downloads").innerHTML = `
+      <div class="dl"><a href="#" id="dl-root-pem">Скачать root.pem</a> <span class="dim">— приватный ключ + сертификат root. Хранить в безопасности!</span></div>
+      <div class="dl"><a href="#" id="dl-root-crt">Скачать root.crt</a> <span class="dim">— сертификат root для установки</span></div>
+      <div class="dl"><a href="#" id="dl-proxy-crt">Скачать proxy.crt</a> <span class="dim">— ограниченный proxy для установки</span></div>`;
+    document.getElementById("dl-root-pem").onclick = (e) => { e.preventDefault(); download("root.pem", rootPem); };
+    document.getElementById("dl-root-crt").onclick = (e) => { e.preventDefault(); download("root.crt", rootCertPem); };
+    document.getElementById("dl-proxy-crt").onclick = (e) => { e.preventDefault(); download("proxy.crt", proxyPem); };
+
+    document.getElementById("results").style.display = "block";
+    setStatus(allOk
+      ? "Готово. Все проверки пройдены. Скачайте файлы и установите их — команды ниже."
+      : "Готово, но ЕСТЬ НЕПРОЙДЕННЫЕ ПРОВЕРКИ — не устанавливайте эти файлы.", allOk ? "ok" : "bad");
+  } catch (err) {
+    setStatus("Ошибка: " + (err.message || err), "bad");
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+async function importPkcs8(der) {
+  try {
+    return await crypto.subtle.importKey("pkcs8", der, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+  } catch {
+    const pkcs8 = sec1ToPkcs8(der);
+    return crypto.subtle.importKey("pkcs8", pkcs8, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+  }
+}
+
+function sec1ToPkcs8(sec1) {
+  const t = readTLV(sec1, 0);
+  const inner = sec1.slice(t.start, t.end);
+  const algId = seq(tlv(0x06, oidToBytes(OID.ecPublicKey)), tlv(0x06, oidToBytes(OID.prime256v1)));
+  return seq(intFromBytes(new Uint8Array([0])), algId, tlv(0x04, inner));
+}
+
+/* ---------- init ---------- */
+
+(async function init() {
+  const ta = document.getElementById("domains");
+  try {
+    const r = await fetch("./allowed-domains.txt");
+    if (r.ok) ta.value = await r.text();
+    else throw 0;
+  } catch {
+    ta.value = "# встроенная копия (актуальная — в репозитории)\n" + EMBEDDED_DOMAINS.join("\n");
+  }
+  try {
+    await loadUpstream();
+    setStatus("Рут минцифры загружен и проверен по отпечатку. Можно генерировать.", "ok");
+  } catch (err) {
+    setStatus("Не удалось проверить рут минцифры: " + (err.message || err), "bad");
+  }
+})();
+</script>
+</body>
+</html>

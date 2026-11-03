@@ -1,3 +1,6 @@
 /.idea/
 /.opencode/
 *.iml
+/out/
+__pycache__/
+*.pyc

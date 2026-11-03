@@ -1,0 +1,110 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check toolchain
+        run: |
+          openssl version
+          python3 --version
+
+      - name: Validate allowed-domains.txt
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+          text = open("allowed-domains.txt", encoding="utf-8").read()
+          domains = []
+          for raw in text.splitlines():
+              line = raw.split("#", 1)[0].strip()
+              if not line:
+                  continue
+              if not re.fullmatch(r"(\*\.)?[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.?", line):
+                  sys.exit(f"invalid domain line: {line!r}")
+              domains.append(line)
+          if not domains:
+              sys.exit("domain list is empty")
+          print(f"{len(domains)} domains: OK")
+          EOF
+
+      - name: Self-tests (hierarchy + real pinned chain)
+        run: python3 scripts/verify.py
+
+      - name: Build pages from template
+        run: |
+          python3 scripts/build_pages.py
+          git diff --exit-code -- docs/index.html || {
+            echo "::error::docs/index.html is out of date with the template/pinned cert — run scripts/build_pages.py and commit"
+            exit 1
+          }
+
+  drift-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify pinned fingerprint against known sources
+        run: |
+          expected=$(python3 -c "import json;print(json.load(open('pinned-fingerprints.json'))['mincifry_root']['sha256'])")
+          ok=0
+          for url in $(python3 -c "import json;print('\n'.join(json.load(open('pinned-fingerprints.json'))['mincifry_root']['sources']))"); do
+            got=$(curl -fsSL "$url" | openssl x509 -outform DER 2>/dev/null | sha256sum | awk '{print toupper($1)}' || true)
+            echo "$url -> ${got:-FETCH_FAILED}"
+            if [ "$got" = "$expected" ]; then ok=1; fi
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::pinned fingerprint does not match any source — Mincifry root may have rotated"
+            gh issue create \
+              --title "Mincifry root certificate changed — manual review required" \
+              --body "Weekly drift-check: pinned SHA256 \`$expected\` did not match any listed source in pinned-fingerprints.json. Update pinned/mincifry-root.crt via a reviewed PR." || true
+            exit 1
+          fi
+
+      - name: Live E2E
+        run: python3 scripts/verify.py --e2e
+
+  deploy-pages:
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble Pages content
+        run: |
+          mkdir -p pages_dist/pinned
+          cp docs/index.html pages_dist/
+          cp allowed-domains.txt pages_dist/
+          cp pinned-fingerprints.json pages_dist/
+          cp pinned/mincifry-root.crt pages_dist/pinned/
+          cp pinned/mincifry-sub-ca.crt pages_dist/pinned/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages_dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

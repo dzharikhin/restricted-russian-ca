@@ -1,0 +1,11 @@
+{
+  "mincifry_root": {
+    "subject": "C=RU, O=The Ministry of Digital Development and Communications, CN=Russian Trusted Root CA",
+    "sha256": "D26D2D0231B7C39F92CC738512BA54103519E4405D68B5BD703E9788CA8ECF31",
+    "validity": "2022-03-01 .. 2032-02-27",
+    "sources": [
+      "https://raw.githubusercontent.com/koenrh/russian-trusted-root-ca/main/root-ca_rsa-2022.pem",
+      "https://raw.githubusercontent.com/rodion-gudz/ru-certs/master/certs/root-ca_rsa-2022.pem"
+    ]
+  }
+}
