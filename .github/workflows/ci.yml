@@ -41,7 +41,7 @@ jobs:
       - name: Install web dependencies (нужны и JS-тестам, и verify.py)
         run: cd web && npm ci
 
-      - name: Cross-validation of JS impl (hierarchy + real pinned chain)
+      - name: Cross-validation of JS impl (hierarchy + live Mincifry chain)
         run: python3 scripts/verify.py
 
       - name: JS tests + build page
@@ -56,7 +56,7 @@ jobs:
             echo "::error::в docs/index.html нет штампа сборки — запустите 'cd web && npm run release'"
             exit 1
           fi
-          git diff --quiet "$commit" HEAD -- web allowed-domains.txt pinned pinned-fingerprints.json || {
+          git diff --quiet "$commit" HEAD -- web allowed-domains.txt mincifry-certs || {
             echo "::error::исходники изменились после штампа ($commit) — запустите 'cd web && npm run release'"
             exit 1
           }
@@ -83,9 +83,9 @@ jobs:
 
       - name: Verify pinned fingerprint against known sources
         run: |
-          expected=$(python3 -c "import json;print(json.load(open('pinned-fingerprints.json'))['mincifry_root']['sha256'])")
+          expected=$(python3 -c "import json;print(json.load(open('mincifry-certs/fingerprints.json'))['mincifry_root']['sha256'])")
           ok=0
-          for url in $(python3 -c "import json;print('\n'.join(json.load(open('pinned-fingerprints.json'))['mincifry_root']['sources']))"); do
+          for url in $(python3 -c "import json;print('\n'.join(json.load(open('mincifry-certs/fingerprints.json'))['mincifry_root']['sources']))"); do
             got=$(curl -fsSL "$url" | openssl x509 -outform DER 2>/dev/null | sha256sum | awk '{print toupper($1)}' || true)
             echo "$url -> ${got:-FETCH_FAILED}"
             if [ "$got" = "$expected" ]; then ok=1; fi
@@ -94,7 +94,7 @@ jobs:
             echo "::error::pinned fingerprint does not match any source — Mincifry root may have rotated"
             gh issue create \
               --title "Mincifry root certificate changed — manual review required" \
-              --body "Weekly drift-check: pinned SHA256 \`$expected\` did not match any listed source in pinned-fingerprints.json. Update pinned/mincifry-root.crt via a reviewed PR." || true
+              --body "Weekly drift-check: pinned SHA256 \`$expected\` did not match any listed source in mincifry-certs/fingerprints.json. Update the sha256/sources there via a reviewed PR." || true
             exit 1
           fi
 
@@ -112,12 +112,8 @@ jobs:
 
       - name: Assemble Pages content
         run: |
-          mkdir -p pages_dist/pinned
+          mkdir -p pages_dist
           cp docs/index.html pages_dist/
-          cp allowed-domains.txt pages_dist/
-          cp pinned-fingerprints.json pages_dist/
-          cp pinned/mincifry-root.crt pages_dist/pinned/
-          cp pinned/mincifry-sub-ca.crt pages_dist/pinned/
 
       - uses: actions/upload-pages-artifact@v3
         with:

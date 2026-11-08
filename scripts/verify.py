@@ -10,31 +10,41 @@ instead validates the CLI output with openssl's independent PKIX engine:
   1. test hierarchy (fake upstream in the shape of the real one): an allowed
      domain validates through root -> proxy -> subCA -> leaf, a blocked domain
      fails with a permitted-subtree violation, IP-SAN leaves are rejected;
-  2. real world structure: the pinned Mincifry sub-CA verifies against the
-     personal root + proxy generated from the pinned Mincifry root;
-  3. optional live E2E (--e2e): a real TLS handshake is verified against the
+  2. real world structure (needs network): the actual Mincifry root is
+     downloaded from the sources listed in mincifry-certs/fingerprints.json
+     (official gu-st.ru first), its SHA256 is checked against the pinned
+     fingerprint, and the real sub-CA verifies against the generated
+     personal root + proxy. Skipped with a warning when offline;
+  3. optional live E2E (--e2e): real TLS handshakes are verified against the
      generated bundle.
 
 Used by CI on every push (and weekly with --e2e). Requires Node.js 20+ with
 `cd web && npm ci` (the CLI needs pkijs), Python 3 stdlib and the openssl CLI.
-Network access is needed only for --e2e.
+Network access is needed for the real-chain checks and --e2e (skipped when
+offline).
 """
 
 import argparse
+import json
 import subprocess
 import sys
+import hashlib
+import json
 import tempfile
+import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
 JS_CLI = REPO / "web" / "generate.mjs"
+FINGERPRINTS = REPO / "mincifry-certs" / "fingerprints.json"
 
 FAKE_UPSTREAM_SUBJ = "/CN=Russian Trusted Root CA/O=The Ministry of Digital Development and Communications/C=RU"
 FAKE_SUBCA_SUBJ = "/CN=Russian Trusted Sub CA/O=The Ministry of Digital Development and Communications/C=RU"
 
 PASS = 0
 FAIL = 0
+SKIP = 0
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -45,6 +55,12 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         PASS += 1
     else:
         FAIL += 1
+
+
+def skip(name: str, detail: str = "") -> None:
+    global SKIP
+    SKIP += 1
+    print(f"[SKIP] {name}" + (f" — {detail}" if detail else ""))
 
 
 def run(cmd: list[str], stdin: bytes | None = None) -> subprocess.CompletedProcess:
@@ -59,6 +75,34 @@ def js_generate(domains_file: Path, upstream: Path, out: Path) -> subprocess.Com
     """Генерация через JS CLI (web/generate.mjs) — тот же код, что и на странице."""
     return run(["node", str(JS_CLI),
                 "--domains", str(domains_file), "--upstream", str(upstream), "--out", str(out)])
+
+
+def load_fingerprints() -> dict:
+    return json.loads(FINGERPRINTS.read_text(encoding="utf-8"))
+
+
+def fetch_cert(urls: list[str], out_path: Path) -> tuple[bool, str]:
+    """Скачивает первый доступный источник; (ok, последний-URL-или-ошибка)."""
+    last = ""
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "restricted-russian-ca-verify/1.0"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                out_path.write_bytes(resp.read())
+            return True, url
+        except Exception as exc:  # noqa: BLE001
+            last = f"{url}: {exc}"
+    return False, last
+
+
+def cert_sha256(path: Path) -> str:
+    """SHA256 сертификата (PEM или DER); "" — не разбирается."""
+    r = openssl("x509", "-in", str(path), "-outform", "DER")
+    if r.returncode != 0:
+        r = openssl("x509", "-inform", "DER", "-in", str(path), "-outform", "DER")
+    if r.returncode != 0:
+        return ""
+    return hashlib.sha256(r.stdout).hexdigest().upper()
 
 
 def gen_key(path: Path) -> None:
@@ -184,31 +228,43 @@ def test_hierarchy(tmp: Path) -> None:
     err = (r.stdout + r.stderr).decode()
     check("no-SAN leaf with blocked CN rejected", r.returncode != 0, err.strip()[:80])
 
-    print("--- real Mincifry chain ---")
-    pinned_root = REPO / "pinned" / "mincifry-root.crt"
-    pinned_sub = REPO / "pinned" / "mincifry-sub-ca.crt"
-    if not pinned_root.exists() or not pinned_sub.exists():
-        check("pinned certificates present", False, "pinned/mincifry-*.crt missing")
+    print("--- real Mincifry chain (downloaded from fingerprints.json sources) ---")
+    pins = load_fingerprints()
+    root = tmp / "mincifry-root.crt"
+    ok, info = fetch_cert(pins["mincifry_root"]["sources"], root)
+    if not ok:
+        skip("real Mincifry chain", f"sources unreachable: {info}")
         return
+    check("root downloaded from sources", True, info)
+
+    sha = cert_sha256(root)
+    check("downloaded root matches pinned SHA256", sha == pins["mincifry_root"]["sha256"],
+          sha or "unparseable")
+    if sha != pins["mincifry_root"]["sha256"]:
+        return
+
+    sub = tmp / "mincifry-sub-ca.crt"
+    ok, info = fetch_cert([pins["mincifry_sub_ca"]["source"]], sub)
+    if not ok:
+        skip("real Mincifry sub-CA download", info)
+        return
+    check("sub-CA downloaded from official source", True, info)
 
     real_domains = tmp / "real-domains.txt"
     real_domains.write_text("gosuslugi.ru\ncbr.ru\nvtb.ru\n")
     real_out = tmp / "real-out"
-    r = js_generate(real_domains, pinned_root, real_out)
-    check("js CLI succeeded on pinned upstream", r.returncode == 0,
+    r = js_generate(real_domains, root, real_out)
+    check("js CLI succeeded on downloaded upstream", r.returncode == 0,
           r.stderr.decode().strip()[:120] if r.returncode else "")
     if r.returncode != 0:
         return
 
     r = openssl(
         "verify", "-CAfile", str(real_out / "root.crt"),
-        "-untrusted", str(real_out / "proxy.crt"), str(pinned_sub)
+        "-untrusted", str(real_out / "proxy.crt"), str(sub)
     )
     check("real Mincifry sub-CA validates against personal root + proxy", r.returncode == 0,
           (r.stdout + r.stderr).decode().strip().splitlines()[-1] if r.returncode else "OK")
-
-    r = openssl("verify", "-CAfile", str(pinned_root), str(pinned_sub))
-    check("pinned certificates are consistent (root signs sub-CA)", r.returncode == 0)
 
 
 def test_e2e(tmp: Path) -> None:
@@ -216,15 +272,20 @@ def test_e2e(tmp: Path) -> None:
     import ssl
     import socket
 
-    pinned_root = REPO / "pinned" / "mincifry-root.crt"
-    if not pinned_root.exists():
-        check("e2e setup", False, "no pinned root")
+    if not FINGERPRINTS.exists():
+        check("e2e setup", False, "mincifry-certs/fingerprints.json missing")
         return
+    pins = load_fingerprints()
 
     domains_file = tmp / "e2e-domains.txt"
     domains_file.write_text("cbr.ru\nvtb.ru\n")
     out = tmp / "e2e-out"
-    r = js_generate(domains_file, pinned_root, out)
+    root = tmp / "mincifry-root.crt"
+    ok, info = fetch_cert(pins["mincifry_root"]["sources"], root)
+    if not ok:
+        skip("e2e generate", f"sources unreachable: {info}")
+        return
+    r = js_generate(domains_file, root, out)
     if r.returncode != 0:
         check("e2e generate", False, r.stderr.decode()[:120])
         return
@@ -291,13 +352,16 @@ def main() -> None:
     if not (REPO / "web" / "node_modules" / "pkijs").exists():
         print("ERROR: web/node_modules is empty — run `cd web && npm ci` first", file=sys.stderr)
         sys.exit(2)
+    if not FINGERPRINTS.exists():
+        print(f"ERROR: {FINGERPRINTS} not found", file=sys.stderr)
+        sys.exit(2)
 
     with tempfile.TemporaryDirectory(prefix="rrca-verify-") as tmp_name:
         test_hierarchy(Path(tmp_name))
         if args.e2e:
             test_e2e(Path(tmp_name))
 
-    print(f"\n{PASS} passed, {FAIL} failed")
+    print(f"\n{PASS} passed, {FAIL} failed, {SKIP} skipped")
     sys.exit(1 if FAIL else 0)
 
 
