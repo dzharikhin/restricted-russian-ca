@@ -31,7 +31,7 @@ const OID = {
   prime256v1: "1.2.840.10045.3.1.7",
 };
 
-// Subject личного root CA (совпадает с CLI-версией scripts/generate.py).
+// Subject личного root CA (одинаков у страницы и CLI web/generate.mjs).
 const ROOT_SUBJECT = [
   [OID.CN, "restricted-russian-ca Personal Root"],
   [OID.O, "restricted-russian-ca"],
@@ -91,9 +91,11 @@ function keyUsageExt() {
 /** nameConstraints (critical): разрешаем перечисленные DNS-имена, запрещаем любые IP SAN. */
 function nameConstraintsExt(domains) {
   const dns = domains.map((d) => new GeneralSubtree({ base: new GeneralName({ type: 2, value: d }) }));
-  // 4/16 нулевых байтов = весь IPv4/IPv6 запрещён
+  // RFC 5280: iPAddress в GeneralSubtree = адрес + маска → 8 октетов для IPv4
+  // (/0) и 32 для IPv6 (::/0). Короткая запись (4/16 байта) означает для
+  // openssl/BoringSSL одиночный адрес, а не весь диапазон.
   const zeroIp = (n) => new GeneralSubtree({
-    base: new GeneralName({ type: 7, value: new asn1js.OctetString({ valueHex: new Uint8Array(n) }) }),
+    base: new GeneralName({ type: 7, value: new asn1js.OctetString({ valueHex: new Uint8Array(n * 2) }) }),
   });
   return makeExtension(OID.nameConstraints, true, new NameConstraints({
     permittedSubtrees: dns,
@@ -231,8 +233,8 @@ export function certNameConstraints(cert) {
   let ip6 = false;
   for (const st of nc.excludedSubtrees ?? []) {
     const len = st.base.value?.valueBlock?.valueHexView?.length;
-    if (len === 4) ip4 = true;
-    if (len === 16) ip6 = true;
+    if (len === 8) ip4 = true;   // адрес + маска = /0
+    if (len === 32) ip6 = true;  // адрес + маска = ::/0
   }
   return { dns, ip4, ip6 };
 }
