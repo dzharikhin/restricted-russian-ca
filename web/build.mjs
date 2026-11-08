@@ -16,7 +16,7 @@ const repoDir = resolve(webDir, "..");
 const docsHtml = resolve(repoDir, "docs", "index.html");
 
 // Пути, от которых зависит содержимое страницы (кроме самого артефакта).
-export const INPUT_PATHS = ["web", "allowed-domains.txt", "pinned", "pinned-fingerprints.json"];
+export const INPUT_PATHS = ["web", "allowed-domains.txt", "mincifry-certs"];
 
 const git = (...args) => execFileSync("git", args, { cwd: repoDir, encoding: "utf8" }).trim();
 

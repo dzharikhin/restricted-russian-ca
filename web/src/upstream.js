@@ -1,51 +1,64 @@
-// Загрузка эталонного сертификата рута минцифры и проверка отпечатка.
+// Получение эталонного сертификата рута минцифры. Сам сертификат не хранится:
+// страница знает только отпечаток (UPSTREAM_SHA256) и источники
+// (UPSTREAM_SOURCES — официальный gu-st.ru первым, затем зеркала). Артефакт
+// скачивается при генерации и сверяется с отпечатком. Файл, загруженный
+// пользователем вручную (если сеть недоступна), тоже сверяется — но
+// несовпадение не блокирует: обе стороны показываются, решение за ним.
+
 import { Certificate } from "pkijs";
-import { UPSTREAM_PEM, UPSTREAM_SHA256 } from "./generated/params.js";
+import { UPSTREAM_SHA256, UPSTREAM_SOURCES } from "./generated/params.js";
 import { pemToDer, sha256Hex } from "./util.js";
 
-/**
- * Возвращает рут минцифры: сначала пробует файл репозитория
- * ./pinned/mincifry-root.crt (на GitHub Pages он может быть свежее самой
- * страницы), при неудаче — встроенную копию. Отпечаток всегда сверяется
- * с запиненным значением из параметров сборки; иначе — ошибка.
- */
-export async function loadUpstream(fetchImpl = fetch) {
-  let pem = null;
-  let source = "";
-  try {
-    const r = await fetchImpl("./pinned/mincifry-root.crt");
-    if (r.ok) { pem = await r.text(); source = "файл репозитория"; }
-  } catch { /* offline — уходим на встроенную копию */ }
-  let warning = null;
-  if (pem === null) {
-    pem = UPSTREAM_PEM;
-    source = "встроенная копия";
-    warning = await pinDriftWarning(fetchImpl);
-  }
-  const der = pemToDer(pem, "CERTIFICATE");
-  const hash = await sha256Hex(der);
-  if (hash !== UPSTREAM_SHA256) {
-    throw new Error(
-      `сертификат рута минцифры не прошёл проверку отпечатка!\n` +
-      `ожидался ${UPSTREAM_SHA256}\nполучен  ${hash}\nисточник: ${source}`,
-    );
-  }
-  return { der, cert: Certificate.fromBER(der), hash, source, warning };
+/** DER сертификата из PEM-текста или «сырых» байтов (DER). */
+function derFromBytes(bytes) {
+  const text = new TextDecoder().decode(bytes);
+  if (text.includes("-----BEGIN CERTIFICATE-----")) return pemToDer(text, "CERTIFICATE");
+  return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 }
 
 /**
- * Сверяет отпечаток в ./pinned-fingerprints.json (если доступен) со
- * встроенным: расхождение означает, что рут минцифры сменился, а страница
- * устарела. Возвращает текст предупреждения или null.
+ * Загружает файл, предоставленный пользователем вручную (PEM или DER).
+ * Отпечаток сверяется с репозиторием, но несовпадение НЕ блокирует:
+ * возвращает { cert, hash, matched } — решение показывает страница.
  */
-async function pinDriftWarning(fetchImpl) {
-  try {
-    const r = await fetchImpl("./pinned-fingerprints.json");
-    if (!r.ok) return null;
-    const remote = (await r.json())?.mincifry_root?.sha256;
-    if (remote && remote !== UPSTREAM_SHA256) {
-      return `ВНИМАНИЕ: отпечаток рута в репозитории (${remote}) отличается от встроенного (${UPSTREAM_SHA256}). Страница может быть устаревшей.`;
+export async function loadUpstreamFromBytes(bytes) {
+  const der = derFromBytes(bytes);
+  const cert = Certificate.fromBER(der);
+  const hash = await sha256Hex(der);
+  return { cert, hash, matched: hash === UPSTREAM_SHA256 };
+}
+
+/**
+ * Скачивает сертификат рута минцифры: перебирает UPSTREAM_SOURCES по порядку,
+ * первый файл с совпавшим отпечатком — результат. Все источники недоступны
+ * или отдают другой сертификат → ошибка с перечнем причин и инструкцией
+ * (скачать вручную с gosuslugi.ru/landing/crt либо обновить отпечаток
+ * в mincifry-certs/fingerprints.json, если рут минцифры сменился).
+ * expectedSha — точка расширения для тестов; по умолчанию берётся из сборки.
+ */
+export async function loadUpstream(fetchImpl = fetch, expectedSha = UPSTREAM_SHA256) {
+  const problems = [];
+  for (const url of UPSTREAM_SOURCES) {
+    let der;
+    try {
+      const r = await fetchImpl(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      der = derFromBytes(new Uint8Array(await r.arrayBuffer()));
+    } catch (e) {
+      problems.push(`• ${url} — недоступен (${e.message || e})`);
+      continue;
     }
-  } catch { /* нет доступа к файлу — не критично */ }
-  return null;
+    const hash = await sha256Hex(der);
+    if (hash !== expectedSha) {
+      problems.push(`• ${url} — отпечаток не совпал (получен ${hash})`);
+      continue;
+    }
+    return { cert: Certificate.fromBER(der), hash, source: url };
+  }
+  throw new Error(
+    `Не удалось получить сертификат рута минцифры (ожидался отпечаток ${expectedSha}):\n` +
+    problems.join("\n") +
+    `\nВарианты: скачать файл вручную с https://www.gosuslugi.ru/landing/crt и загрузить его на странице,` +
+    `\nлибо обновить mincifry-certs/fingerprints.json и пересобрать страницу, если рут минцифры сменился.`,
+  );
 }

@@ -7,8 +7,10 @@
 // Использование (из корня репозитория):
 //   node web/generate.mjs [--domains FILE] [--upstream CERT] [--root-pem FILE]
 //                         [--days N] [--out DIR]
-// По умолчанию: allowed-domains.txt → out/. Эталонный рут — pinned/mincifry-root.crt,
-// отпечаток сверяется с pinned-fingerprints.json (расхождение = отказ).
+// По умолчанию: allowed-domains.txt → out/. Сертификат минцифры скачивается
+// с источников из mincifry-certs/fingerprints.json (официальный первым) и
+// сверяется с отпечатком. Явный --upstream CERT проверке отпечатка не
+// подлежит — это осознанный override для экспериментов.
 // Требуется Node.js 20+ и зависимости (cd web && npm ci).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,7 +31,7 @@ import { derToPem, pemToDer, sha256Hex } from "./src/util.js";
 
 const webDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = resolve(webDir, "..");
-const DEFAULT_UPSTREAM = resolve(repoDir, "pinned", "mincifry-root.crt");
+const FINGERPRINTS = resolve(repoDir, "mincifry-certs", "fingerprints.json");
 
 const die = (msg) => {
   console.error(`ERROR: ${msg}`);
@@ -40,8 +42,9 @@ function usage() {
   console.log(`Использование: node web/generate.mjs [опции]
 
   --domains FILE   файл со списком доменов (по умолчанию: allowed-domains.txt)
-  --upstream CERT  рут минцифры (по умолчанию: pinned/mincifry-root.crt;
-                   произвольный сертификат пин-проверку не проходит)
+  --upstream CERT  файл сертификата минцифры; по умолчанию скачивается с
+                   источников из mincifry-certs/fingerprints.json и сверяется
+                   с отпечатком; явный файл проверке не подлежит (override)
   --root-pem FILE  существующий root.pem (приватный ключ + сертификат);
                    root переиспользуется, при расширении списка доменов
                    перевыпускается на том же ключе
@@ -52,7 +55,7 @@ function usage() {
 function parseArgs(argv) {
   const args = {
     domains: resolve(repoDir, "allowed-domains.txt"),
-    upstream: DEFAULT_UPSTREAM,
+    upstream: null,
     rootPem: null,
     days: null,
     out: resolve(repoDir, "out"),
@@ -82,28 +85,71 @@ function parseArgs(argv) {
   return args;
 }
 
+/** DER сертификата из PEM-текста или «сырых» байтов (DER). */
+function derFromBytes(bytes) {
+  const text = new TextDecoder().decode(bytes);
+  if (text.includes("-----BEGIN CERTIFICATE-----")) return pemToDer(text, "CERTIFICATE");
+  return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+}
+
+/**
+ * Сертификат рута минцифры: явный файл (--upstream, без проверки отпечатка)
+ * или скачивание с источников из fingerprints.json с жёсткой сверкой.
+ */
+async function loadUpstream(args) {
+  const pins = JSON.parse(readFileSync(FINGERPRINTS, "utf8"));
+  const expected = pins.mincifry_root?.sha256;
+  const sources = pins.mincifry_root?.sources;
+  if (typeof expected !== "string" || !Array.isArray(sources) || !sources.length) {
+    die(`${FINGERPRINTS}: некорректная структура mincifry_root`);
+  }
+
+  if (args.upstream) {
+    const der = derFromBytes(new Uint8Array(readFileSync(args.upstream)));
+    const hash = await sha256Hex(der);
+    console.log(`upstream: ${args.upstream} (явный файл — проверка отпечатка пропущена, получен ${hash})`);
+    return { cert: Certificate.fromBER(der), hash };
+  }
+
+  const problems = [];
+  for (const url of sources) {
+    let der;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      der = derFromBytes(new Uint8Array(await r.arrayBuffer()));
+    } catch (e) {
+      problems.push(`• ${url} — недоступен (${e.message || e})`);
+      continue;
+    }
+    const hash = await sha256Hex(der);
+    if (hash !== expected) {
+      problems.push(`• ${url} — отпечаток не совпал (получен ${hash})`);
+      continue;
+    }
+    console.log(`upstream: ${url}, отпечаток сверен (${hash})`);
+    return { cert: Certificate.fromBER(der), hash };
+  }
+  die(
+    `Не удалось получить сертификат рута минцифры (ожидался отпечаток ${expected}):\n` +
+    problems.join("\n") +
+    `\nВарианты: проверить сеть, скачать файл вручную с https://www.gosuslugi.ru/landing/crt` +
+    ` и передать через --upstream FILE,\nлибо обновить mincifry-certs/fingerprints.json, если рут минцифры сменился.`,
+  );
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  for (const [name, path] of [["--domains", args.domains], ["--upstream", args.upstream]]) {
-    if (!existsSync(path)) die(`${name}: файл не найден: ${path}`);
+  for (const [name, path] of [["--domains", args.domains], ["--root-pem", args.rootPem]]) {
+    if (path && !existsSync(path)) die(`${name}: файл не найден: ${path}`);
   }
-  if (args.rootPem && !existsSync(args.rootPem)) die(`--root-pem: файл не найден: ${args.rootPem}`);
+  if (!existsSync(FINGERPRINTS)) die(`не найден ${FINGERPRINTS}`);
 
   const domains = normalizeDomains(readFileSync(args.domains, "utf8"));
-
-  // Эталонный рут минцифры + сверка отпечатка с пином (как на странице).
-  const upstreamDer = pemToDer(readFileSync(args.upstream, "utf8"), "CERTIFICATE");
-  const upstreamHash = await sha256Hex(upstreamDer);
-  const upstreamCert = Certificate.fromBER(upstreamDer);
-  if (args.upstream === DEFAULT_UPSTREAM) {
-    const pins = JSON.parse(readFileSync(resolve(repoDir, "pinned-fingerprints.json"), "utf8"));
-    const expected = pins.mincifry_root.sha256;
-    if (upstreamHash !== expected) {
-      die(`отпечаток pinned-сертификата (${upstreamHash}) не совпадает с ` +
-          `pinned-fingerprints.json (${expected}) — рут минцифры сменился?`);
-    }
-  }
+  const upstream = await loadUpstream(args);
+  const upstreamCert = upstream.cert;
+  const upstreamHash = upstream.hash;
 
   // Root: переиспользуем сохранённый (перевыпуск на том же ключе при
   // расширении списка) или создаём новый.

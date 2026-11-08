@@ -32,6 +32,16 @@
     </div>
     <div class="hint">Файл root.pem из прошлой генерации (приватный ключ + сертификат). Если не указан — будет создан новый root. Если NC вашего root не покрывает новый список доменов — сертификат root будет перевыпущен на том же ключе.</div>
 
+    <details id="manualbox" style="margin-top:12px">
+      <summary>Загрузить сертификат минцифры вручную (если сеть недоступна)</summary>
+      <div class="filebox" style="margin-top:8px">
+        <input type="file" id="upstreamfile" accept=".crt,.pem,.cer,.txt">
+      </div>
+      <div class="hint">Файл — с <a href="https://www.gosuslugi.ru/landing/crt">gosuslugi.ru/landing/crt</a>
+      («Russian Trusted Root CA», PEM или DER). Отпечаток сверяется с репозиторием; при несовпадении
+      обе стороны показываются в проверках — решение о доверии остаётся за вами.</div>
+    </details>
+
     <div style="margin-top:18px"><button id="go" type="button">Сгенерировать</button></div>
     <div id="status" class="status"></div>
   </div>
@@ -99,12 +109,14 @@ openssl x509 -in root.crt -noout -fingerprint -sha256
 openssl x509 -in proxy.crt -noout -text | grep -A10 "Name Constraints"
 
 # публичный ключ proxy обязан совпадать с публичным ключом рута минцифры
-# (две команды должны выдать одинаковый хэш)
+# (две команды должны выдать одинаковый хэш; актуальный рут — с gosuslugi.ru)
+curl -fsSL https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt \
+  | openssl x509 -pubkey -noout | openssl sha256
 openssl x509 -in proxy.crt -pubkey -noout | openssl sha256
-openssl x509 -in pinned/mincifry-root.crt -pubkey -noout | openssl sha256
 
-# цепочка: сертификат суб-CA минцифры проверяется вашим root + proxy
-openssl verify -CAfile root.crt -untrusted proxy.crt pinned/mincifry-sub-ca.crt</pre>
+# цепочка: актуальный суб-CA минцифры проверяется вашим root + proxy
+curl -fsSL https://gu-st.ru/content/lending/russian_trusted_sub_ca_pem.crt -o sub-ca.crt
+openssl verify -CAfile root.crt -untrusted proxy.crt sub-ca.crt</pre>
       <p>После установки можно проверить живой сайт (example — доверенный домен):</p>
       <pre># proxy.crt нужен цепочке как промежуточный — подаём оба файла одним бандлом
 cat root.crt proxy.crt &gt; bundle.pem

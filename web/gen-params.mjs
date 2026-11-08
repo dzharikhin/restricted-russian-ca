@@ -1,7 +1,8 @@
 // Генерирует src/generated/params.js из файлов репозитория — единый источник
-// параметров страницы (список доменов, эталонный рут минцифры, отпечаток).
+// параметров страницы (список доменов, отпечаток рута минцифры, зеркала).
 // Файл gitignore'ится: правки вносятся в исходные файлы репозитория, не сюда.
-import { createHash } from "node:crypto";
+// Сам сертификат минцифры не встраивается: страница скачивает его при
+// генерации и сверяет с отпечатком (upstream.js).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,32 +13,32 @@ const repoDir = resolve(webDir, "..");
 const outFile = resolve(webDir, "src/generated/params.js");
 
 /**
- * Читает allowed-domains.txt, pinned/mincifry-root.crt и pinned-fingerprints.json,
- * сверяет отпечатки и записывает src/generated/params.js.
- * Несовпадение отпечатка или некорректный список доменов = ошибка сборки.
+ * Читает allowed-domains.txt и mincifry-certs/fingerprints.json и записывает
+ * src/generated/params.js. Некорректный список доменов или отпечаток не той
+ * формы = ошибка сборки. Сеть не нужна.
  */
 export async function generateParams() {
   const domains = normalizeDomains(readFileSync(resolve(repoDir, "allowed-domains.txt"), "utf8"));
-  const pem = readFileSync(resolve(repoDir, "pinned/mincifry-root.crt"), "utf8").trim();
-  const pins = JSON.parse(readFileSync(resolve(repoDir, "pinned-fingerprints.json"), "utf8"));
-  const body = pem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/)?.[1];
-  if (!body) throw new Error("нет CERTIFICATE-блока в pinned/mincifry-root.crt");
-  const sha256 = createHash("sha256")
-    .update(Buffer.from(body.replace(/\s+/g, ""), "base64"))
-    .digest("hex")
-    .toUpperCase();
-  if (sha256 !== pins.mincifry_root.sha256) {
-    throw new Error(`отпечаток pinned-сертификата (${sha256}) не совпадает с pinned-fingerprints.json (${pins.mincifry_root.sha256})`);
+  const pins = JSON.parse(readFileSync(resolve(repoDir, "mincifry-certs/fingerprints.json"), "utf8"));
+  const sha256 = pins.mincifry_root?.sha256;
+  const sources = pins.mincifry_root?.sources;
+  if (typeof sha256 !== "string" || !/^[0-9A-F]{64}$/.test(sha256)) {
+    throw new Error("mincifry-certs/fingerprints.json: некорректный mincifry_root.sha256");
+  }
+  if (!Array.isArray(sources) || !sources.length || sources.some((s) => !/^https:\/\//.test(s))) {
+    throw new Error("mincifry-certs/fingerprints.json: mincifry_root.sources должен быть непустым списком https-URL");
   }
   const js = `// Сгенерировано автоматически: npm run gen (gen-params.mjs) — не редактировать.
-// Источники: allowed-domains.txt, pinned/mincifry-root.crt, pinned-fingerprints.json.
+// Источники: allowed-domains.txt, mincifry-certs/fingerprints.json.
+// Сертификат минцифры не хранится: страница скачивает его с UPSTREAM_SOURCES
+// и сверяет с UPSTREAM_SHA256 при каждой генерации.
 export const EMBEDDED_DOMAINS = ${JSON.stringify(domains)};
-export const UPSTREAM_PEM = ${JSON.stringify(pem)};
-export const UPSTREAM_SHA256 = "${sha256}";
+export const UPSTREAM_SHA256 = ${JSON.stringify(sha256)};
+export const UPSTREAM_SOURCES = ${JSON.stringify(sources)};
 `;
   mkdirSync(dirname(outFile), { recursive: true });
   writeFileSync(outFile, js);
-  console.log(`params: домены: ${domains.length}, рут минцифры sha256 ${sha256}`);
+  console.log(`params: домены: ${domains.length}, источников: ${sources.length}, отпечаток ${sha256}`);
   return { domains, sha256 };
 }
 
