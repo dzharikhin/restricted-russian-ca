@@ -47,13 +47,13 @@
   <p class="dim">Личный root CA + name-constrained proxy корня «Russian Trusted Root CA».
   Доверие минцифре только для доменов из вашего списка. Всё генерируется локально в браузере —
   ключи никуда не отправляются. Исходники страницы — в каталоге <code>web/src</code> репозитория проекта.</p>
-  <div class="dim" data-commit="8a1bbae23e83a12c2db8b9b9dcf23cac80ee771d" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
-  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/8a1bbae23e83a12c2db8b9b9dcf23cac80ee771d">репозиторий @ 8a1bbae</a> —
+  <div class="dim" data-commit="26bd78364da7a8bb5a4ad5a5b8906950a9cdc855" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
+  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/26bd78364da7a8bb5a4ad5a5b8906950a9cdc855">репозиторий @ 26bd783</a> —
   страница собирается из исходников детерминированно.
   <details><summary>Сверить байт-в-байт</summary>
   <pre>git clone https://github.com/dzharikhin/restricted-russian-ca
-cd restricted-russian-ca && git checkout 8a1bbae
-cd web && npm ci && npm run build -- --commit 8a1bbae23e83a12c2db8b9b9dcf23cac80ee771d --repo https://github.com/dzharikhin/restricted-russian-ca
+cd restricted-russian-ca && git checkout 26bd783
+cd web && npm ci && npm run build -- --commit 26bd78364da7a8bb5a4ad5a5b8906950a9cdc855 --repo https://github.com/dzharikhin/restricted-russian-ca
 cmp docs/index.html &lt;скачанная страница&gt;</pre>
   </details>
 </div>
@@ -121,9 +121,6 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
       становится доверенным корнем, а Chrome не применяет <code>nameConstraints</code> доверенного корня.
       Установка нашего proxy на Android фактически равна установке оригинальной цепочки минцифры:
       открываться будут <b>все</b> сайты, подписанные рут-ключом минцифры, а не только из списка.</p>
-      <p class="hint">Канарейка: сайт на цепочке минцифры вне списка (например, mkb.ru) на Android
-      откроется без предупреждения — на десктопе выдаст ошибку сертификата. Подробности и отслеживаемые
-      upstream-issues — в README репозитория.</p>
       <p class="hint">Альтернатива для .ru/.рф/.su без установки сертификатов в систему:
       <a href="https://github.com/rutheniumteam/ruthenium-android">Ruthenium</a> — сборка Chromium для Android,
       в которой рут минцифры встроен как доверенный корень, ограниченный этими зонами.</p>
@@ -132,8 +129,6 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
       (названия пунктов у вендоров отличаются); потребуется PIN, предупреждение «Сеть может отслеживаться» —
       норма; после установки — <code>chrome://restart</code>. Удаление: «Доверенные сертификаты → Пользователь» →
       удалить обе записи → снова <code>chrome://restart</code>.</p>
-      <p class="hint">Firefox на Android использует собственное хранилище сертификатов — наши сертификаты
-      там не работают вовсе.</p>
     </details>
     <details><summary>Удаление</summary>
       <p>Linux: удалите <code>/usr/local/share/ca-certificates/restricted-ru-*.crt</code> и запустите <code>sudo update-ca-certificates --fresh</code>. Windows: <code>certutil -delstore Root "restricted-russian-ca Personal Root"</code> и удалите proxy из промежуточного хранилища. macOS: <code>sudo security delete-certificate -c "restricted-russian-ca"</code>.</p>
