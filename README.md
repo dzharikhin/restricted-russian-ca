@@ -202,6 +202,12 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 запиненный рут минцифры (проверяется по отпечатку); оригинальный рут и прочие
 ЦС НУЦ не устанавливаются. Но фильтрации по списку доменов нет.
 
+Альтернатива, если нужен доступ к `.ru`/`.рф`/`.su` без установки сертификатов
+в систему: [Ruthenium](https://github.com/rutheniumteam/ruthenium-android) —
+сборка Chromium для Android, в которой рут минцифры встроен как якорь,
+ограниченный зонами `.ru`, `.рф` и `.su` (в системное хранилище не попадает
+и не может заверять имена вне этих зон).
+
 Канарейка для проверки на своём устройстве: сайт на цепочке минцифры вне
 вашего списка (например, `mkb.ru` или `rosbank.ru`) — на Android откроется
 без предупреждения (ограничение не действует), на десктопе выдаст ошибку
@@ -396,5 +402,7 @@ npm run build  # пересобрать docs/index.html из web/src и пара
 ## Благодарности и источники
 
 - Подход «cross-sign рута минцифры с nameConstraints»: [rodion-gudz/ru-certs](https://github.com/rodion-gudz/ru-certs), [dgavrilov/rucert](https://github.com/dgavrilov/rucert)
+- [good-bear.org](https://good-bear.org/) — браузер на базе Firefox с изолированным доверием к сертификатам минцифры ([Goudron/good-bear](https://github.com/Goudron/good-bear))
+- [Ruthenium](https://github.com/rutheniumteam/ruthenium-android) — сборка Chromium для Android: рут минцифры встроен ограниченным зонами `.ru`/`.рф`/`.su`, в системное хранилище не попадает
 - Копии сертификатов и данные CT-логов: [koenrh/russian-trusted-root-ca](https://github.com/koenrh/russian-trusted-root-ca)
 - Официальная страница сертификата: [gosuslugi.ru/landing/crt](https://www.gosuslugi.ru/landing/crt)
