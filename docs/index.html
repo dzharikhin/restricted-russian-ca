@@ -47,13 +47,13 @@
   <p class="dim">Личный root CA + name-constrained proxy корня «Russian Trusted Root CA».
   Доверие минцифре только для доменов из вашего списка. Всё генерируется локально в браузере —
   ключи никуда не отправляются. Исходники страницы — в каталоге <code>web/src</code> репозитория проекта.</p>
-  <div class="dim" data-commit="2c5cf2a92f22922e12f4912d072d975368118610" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
-  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/2c5cf2a92f22922e12f4912d072d975368118610">репозиторий @ 2c5cf2a</a> —
+  <div class="dim" data-commit="342b2d9a9ca0efaf79f19dc6de01358e910e3586" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
+  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/342b2d9a9ca0efaf79f19dc6de01358e910e3586">репозиторий @ 342b2d9</a> —
   страница собирается из исходников детерминированно.
   <details><summary>Сверить байт-в-байт</summary>
   <pre>git clone https://github.com/dzharikhin/restricted-russian-ca
-cd restricted-russian-ca && git checkout 2c5cf2a
-cd web && npm ci && npm run build -- --commit 2c5cf2a92f22922e12f4912d072d975368118610 --repo https://github.com/dzharikhin/restricted-russian-ca
+cd restricted-russian-ca && git checkout 342b2d9
+cd web && npm ci && npm run build -- --commit 342b2d9a9ca0efaf79f19dc6de01358e910e3586 --repo https://github.com/dzharikhin/restricted-russian-ca
 cmp docs/index.html &lt;скачанная страница&gt;</pre>
   </details>
 </div>
@@ -105,6 +105,24 @@ certutil -addstore -f CA proxy.crt</pre>
     <details><summary>macOS</summary>
       <pre>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain root.crt
 sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain proxy.crt</pre>
+    </details>
+    <details><summary>Android</summary>
+      <p>Отдельного хранилища промежуточных сертификатов в Android нет: <b>оба</b> файла
+      устанавливаются по очереди как «Сертификат ЦС» и каждый становится доверенным якорем —
+      это нормально и работает. <code>root.pem</code> не устанавливать (приватный ключ).</p>
+      <ol>
+        <li>Настройки → Безопасность (и конфиденциальность) → Ещё → Шифрование и учётные данные →
+        <b>Установить сертификат → Сертификат ЦС</b> → выберите <code>root.crt</code>, затем повторите
+        для <code>proxy.crt</code>. Названия пунктов отличаются у вендоров (Samsung:
+        «Установить сертификат из хранилища устройства»). Android потребует задать PIN;
+        предупреждение «Сеть может отслеживаться» — норма для пользовательских ЦС.</li>
+        <li>Проверка: Настройки → Безопасность → Доверенные сертификаты → вкладка <b>«Пользователь»</b> —
+        должны появиться обе записи; у записи про минцифры «Кем выдан» — ваш личный root.</li>
+        <li>Полностью перезапустите Chrome: наберите в адресной строке <code>chrome://restart</code>.</li>
+        <li>Удаление: тот же экран «Доверенные сертификаты → Пользователь» → удалить обе записи →
+        снова <code>chrome://restart</code> и убедиться, что список опустел.</li>
+      </ol>
+      <p class="hint">Firefox на Android использует собственное хранилище сертификатов — эта схема к нему не применима.</p>
     </details>
     <details><summary>Удаление</summary>
       <p>Linux: удалите <code>/usr/local/share/ca-certificates/restricted-ru-*.crt</code> и запустите <code>sudo update-ca-certificates --fresh</code>. Windows: <code>certutil -delstore Root "restricted-russian-ca Personal Root"</code> и удалите proxy из промежуточного хранилища. macOS: <code>sudo security delete-certificate -c "restricted-russian-ca"</code>.</p>
@@ -20497,7 +20515,7 @@ ${values.join("\n")}` : `${blockName} :`;
   initCryptoEngine();
 
   // src/generated/params.js
-  var EMBEDDED_DOMAINS = ["gosuslugi.ru", "cbr.ru", "vtb.ru"];
+  var EMBEDDED_DOMAINS = ["gosuslugi.ru", "cbr.ru", "vtb.ru", "alfabank.ru", "tinkoff.ru", "sberbank.ru"];
   var UPSTREAM_PEM = "-----BEGIN CERTIFICATE-----\nMIIFwjCCA6qgAwIBAgICEAAwDQYJKoZIhvcNAQELBQAwcDELMAkGA1UEBhMCUlUx\nPzA9BgNVBAoMNlRoZSBNaW5pc3RyeSBvZiBEaWdpdGFsIERldmVsb3BtZW50IGFu\nZCBDb21tdW5pY2F0aW9uczEgMB4GA1UEAwwXUnVzc2lhbiBUcnVzdGVkIFJvb3Qg\nQ0EwHhcNMjIwMzAxMjEwNDE1WhcNMzIwMjI3MjEwNDE1WjBwMQswCQYDVQQGEwJS\nVTE/MD0GA1UECgw2VGhlIE1pbmlzdHJ5IG9mIERpZ2l0YWwgRGV2ZWxvcG1lbnQg\nYW5kIENvbW11bmljYXRpb25zMSAwHgYDVQQDDBdSdXNzaWFuIFRydXN0ZWQgUm9v\ndCBDQTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAMfFOZ8pUAL3+r2n\nqqE0Zp52selXsKGFYoG0GM5bwz1bSFtCt+AZQMhkWQheI3poZAToYJu69pHLKS6Q\nXBiwBC1cvzYmUYKMYZC7jE5YhEU2bSL0mX7NaMxMDmH2/NwuOVRj8OImVa5s1F4U\nzn4Kv3PFlDBjjSjXKVY9kmjUBsXQrIHeaqmUIsPIlNWUnimXS0I0abExqkbdrXbX\nYwCOXhOO2pDUx3ckmJlCMUGacUTnylyQW2VsJIyIGA8V0xzdaeUXg0VZ6ZmNUr5Y\nBer/EAOLPb8NYpsAhJe2mXjMB/J9HNsoFMBFJ0lLOT/+dQvjbdRZoOT8eqJpWnVD\nU+QL/qEZnz57N88OWM3rabJkRNdU/Z7x5SFIM9FrqtN8xewsiBWBI0K6XFuOBOTD\n4V08o4TzJ8+Ccq5XlCUW2L48pZNCYuBDfBh7FxkB7qDgGDiaftEkZZfApRg2E+M9\nG8wkNKTPLDc4wH0FDTijhgxR3Y4PiS1HL2Zhw7bD3CbslmEGgfnnZojNkJtcLeBH\nBLa52/dSwNU4WWLubaYSiAmA9IUMX1/RpfpxOxd4Ykmhz97oFbUaDJFipIggx5sX\nePAlkTdWnv+RWBxlJwMQ25oEHmRguNYf4Zr/Rxr9cS93Y+mdXIZaBEE0KS2iLRqa\nOiWBki9IMQU4phqPOBAaG7A+eP8PAgMBAAGjZjBkMB0GA1UdDgQWBBTh0YHlzlpf\nBKrS6badZrHF+qwshzAfBgNVHSMEGDAWgBTh0YHlzlpfBKrS6badZrHF+qwshzAS\nBgNVHRMBAf8ECDAGAQH/AgEEMA4GA1UdDwEB/wQEAwIBhjANBgkqhkiG9w0BAQsF\nAAOCAgEAALIY1wkilt/urfEVM5vKzr6utOeDWCUczmWX/RX4ljpRdgF+5fAIS4vH\ntmXkqpSCOVeWUrJV9QvZn6L227ZwuE15cWi8DCDal3Ue90WgAJJZMfTshN4OI8cq\nW9E4EG9wglbEtMnObHlms8F3CHmrw3k6KmUkWGoa+/ENmcVl68u/cMRl1JbW2bM+\n/3A+SAg2c6iPDlehczKx2oa95QW0SkPPWGuNA/CE8CpyANIhu9XFrj3RQ3EqeRcS\nAQQod1RNuHpfETLU/A2gMmvn/w/sx7TB3W5BPs6rprOA37tutPq9u6FTZOcG1Oqj\nC/B7yTqgI7rbyvox7DEXoX7rIiEqyNNUguTk/u3SZ4VXE2kmxdmSh3TQvybfbnXV\n4JbCZVaqiZraqc7oZMnRoWrXRG3ztbnbes/9qhRGI7PqXqeKJBztxRTEVj8ONs1d\nWN5szTwaPIvhkhO3CO5ErU2rVdUr89wKpNXbBODFKRtgxUT70YpmJ46VVaqdAhOZ\nD9EUUn4YaeLaS8AjSF/h7UkjOibNc4qVDiPP+rkehFWM66PVnP1Msh93tc+taIfC\nEYVMxjh8zNbFuoc7fzvvrFILLe7ifvEIUqSVIC/AzplM/Jxw7buXFeGP1qVCBEHq\n391d/9RAfaZ12zkwFsl+IKwE/OZxW8AHa9i1p4GO0YSNuczzEm4=\n-----END CERTIFICATE-----";
   var UPSTREAM_SHA256 = "D26D2D0231B7C39F92CC738512BA54103519E4405D68B5BD703E9788CA8ECF31";
 
@@ -20664,7 +20682,7 @@ ${lines}
       subjectPublicKeyInfo: spki,
       ...validity(days),
       extensions: [
-        makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 2 })),
+        makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 3 })),
         keyUsageExt(),
         makeExtension(OID.ski, false, new OctetString({ valueHex: await keyId(spki) })),
         nameConstraintsExt(domains)
@@ -20682,7 +20700,7 @@ ${lines}
       subjectPublicKeyInfo: mincifryCert.subjectPublicKeyInfo,
       ...validity(days),
       extensions: [
-        makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 1 })),
+        makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 2 })),
         keyUsageExt(),
         makeExtension(OID.ski, false, new OctetString({ valueHex: await keyId(mincifryCert.subjectPublicKeyInfo) })),
         makeExtension(OID.aki, false, new AuthorityKeyIdentifier({
@@ -20883,7 +20901,7 @@ ${lines}
       showDownloads([
         {
           name: "root.pem",
-          hint: "\u2014 \u043F\u0440\u0438\u0432\u0430\u0442\u043D\u044B\u0439 \u043A\u043B\u044E\u0447 + \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043A\u0430\u0442 root. \u0425\u0440\u0430\u043D\u0438\u0442\u044C \u0432 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u0438!",
+          hint: "\u2014 \u043F\u0440\u0438\u0432\u0430\u0442\u043D\u044B\u0439 \u043A\u043B\u044E\u0447 + \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043A\u0430\u0442 root. \u0425\u0440\u0430\u043D\u0438\u0442\u044C \u0432 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u0438, \u041D\u0415 \u0443\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0442\u044C!",
           content: derToPem(new Uint8Array(pkcs8), "PRIVATE KEY") + certToPem(rootCert)
         },
         { name: "root.crt", hint: "\u2014 \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043A\u0430\u0442 root \u0434\u043B\u044F \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438", content: certToPem(rootCert) },
