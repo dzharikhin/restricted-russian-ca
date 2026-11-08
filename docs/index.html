@@ -47,13 +47,13 @@
   <p class="dim">Личный root CA + name-constrained proxy корня «Russian Trusted Root CA».
   Доверие минцифре только для доменов из вашего списка. Всё генерируется локально в браузере —
   ключи никуда не отправляются. Исходники страницы — в каталоге <code>web/src</code> репозитория проекта.</p>
-  <div class="dim" data-commit="342b2d9a9ca0efaf79f19dc6de01358e910e3586" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
-  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/342b2d9a9ca0efaf79f19dc6de01358e910e3586">репозиторий @ 342b2d9</a> —
+  <div class="dim" data-commit="bd5035afe03f5770906a94db8f945f8ea1fb58c3" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
+  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/bd5035afe03f5770906a94db8f945f8ea1fb58c3">репозиторий @ bd5035a</a> —
   страница собирается из исходников детерминированно.
   <details><summary>Сверить байт-в-байт</summary>
   <pre>git clone https://github.com/dzharikhin/restricted-russian-ca
-cd restricted-russian-ca && git checkout 342b2d9
-cd web && npm ci && npm run build -- --commit 342b2d9a9ca0efaf79f19dc6de01358e910e3586 --repo https://github.com/dzharikhin/restricted-russian-ca
+cd restricted-russian-ca && git checkout bd5035a
+cd web && npm ci && npm run build -- --commit bd5035afe03f5770906a94db8f945f8ea1fb58c3 --repo https://github.com/dzharikhin/restricted-russian-ca
 cmp docs/index.html &lt;скачанная страница&gt;</pre>
   </details>
 </div>
@@ -20658,7 +20658,7 @@ ${lines}
   function nameConstraintsExt(domains) {
     const dns = domains.map((d) => new GeneralSubtree({ base: new GeneralName({ type: 2, value: d }) }));
     const zeroIp = (n) => new GeneralSubtree({
-      base: new GeneralName({ type: 7, value: new OctetString({ valueHex: new Uint8Array(n) }) })
+      base: new GeneralName({ type: 7, value: new OctetString({ valueHex: new Uint8Array(n * 2) }) })
     });
     return makeExtension(OID.nameConstraints, true, new NameConstraints({
       permittedSubtrees: dns,
@@ -20757,8 +20757,8 @@ ${lines}
     let ip6 = false;
     for (const st of nc.excludedSubtrees ?? []) {
       const len = st.base.value?.valueBlock?.valueHexView?.length;
-      if (len === 4) ip4 = true;
-      if (len === 16) ip6 = true;
+      if (len === 8) ip4 = true;
+      if (len === 32) ip6 = true;
     }
     return { dns, ip4, ip6 };
   }
