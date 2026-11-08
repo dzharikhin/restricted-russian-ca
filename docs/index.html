@@ -47,13 +47,13 @@
   <p class="dim">Личный root CA + name-constrained proxy корня «Russian Trusted Root CA».
   Доверие минцифре только для доменов из вашего списка. Всё генерируется локально в браузере —
   ключи никуда не отправляются. Исходники страницы — в каталоге <code>web/src</code> репозитория проекта.</p>
-  <div class="dim" data-commit="45a5bce855d09995daece22297f73fcaba05f952" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
-  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/45a5bce855d09995daece22297f73fcaba05f952">репозиторий @ 45a5bce</a> —
+  <div class="dim" data-commit="cb08703174ba6e840be3450cba9d39f4bb7a24a0" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
+  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/cb08703174ba6e840be3450cba9d39f4bb7a24a0">репозиторий @ cb08703</a> —
   страница собирается из исходников детерминированно.
   <details><summary>Сверить байт-в-байт</summary>
   <pre>git clone https://github.com/dzharikhin/restricted-russian-ca
-cd restricted-russian-ca && git checkout 45a5bce
-cd web && npm ci && npm run build -- --commit 45a5bce855d09995daece22297f73fcaba05f952 --repo https://github.com/dzharikhin/restricted-russian-ca
+cd restricted-russian-ca && git checkout cb08703
+cd web && npm ci && npm run build -- --commit cb08703174ba6e840be3450cba9d39f4bb7a24a0 --repo https://github.com/dzharikhin/restricted-russian-ca
 cmp docs/index.html &lt;скачанная страница&gt;</pre>
   </details>
 </div>
@@ -121,8 +121,7 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
       становится доверенным якорем, а Chrome не применяет <code>nameConstraints</code> из якоря.
       Установка нашего proxy на Android фактически равна установке оригинальной цепочки минцифры:
       открываться будут <b>все</b> сайты, подписанные рут-ключом минцифры, а не только из списка.</p>
-      <p class="hint">Что остаётся: доверяется ровно один запиненный ключ (оригинальный рут и прочие ЦС НУЦ
-      не устанавливаются). Канарейка: сайт на цепочке минцифры вне списка (например, mkb.ru) на Android
+      <p class="hint">Канарейка: сайт на цепочке минцифры вне списка (например, mkb.ru) на Android
       откроется без предупреждения — на десктопе выдаст ошибку сертификата. Подробности и отслеживаемые
       upstream-issues — в README репозитория.</p>
       <p class="hint">Альтернатива для .ru/.рф/.su без установки сертификатов в систему:
