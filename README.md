@@ -35,6 +35,22 @@ trust store девайса
   constraints из anchor (OpenSSL, проверено, — нет; тогда работает только
   уровень proxy, который применяют все).
 
+## Как это устроено
+
+- `web/src/` — исходники страницы: `ca.js` (выпуск root + proxy поверх
+  WebCrypto и pkijs/asn1js), `upstream.js` (проверка пина рута минцифры),
+  `domains.js` (нормализация списка), `main.js`/`ui.js` (DOM), `index.html`
+  + `style.css`. Низкоуровневые ASN.1/DER — библиотеки [pkijs](https://github.com/PeculiarVentures/PKI.js)
+  и [asn1js](https://github.com/PeculiarVentures/asn1.js) (BSD-3-Clause),
+  ключи и подписи — нативный WebCrypto браузера.
+- `cd web && npm run build` собирает один самодостаточный `docs/index.html`:
+  список доменов из `allowed-domains.txt`, пин из `pinned/` и `pinned-fingerprints.json`
+  внедряются при сборке (единый источник параметров — файлы репозитория,
+  никаких дубликатов в коде). Результат работает офлайн.
+- `cd web && npm test` — тесты: нормализация доменов, целостность пина,
+  полный цикл генерации и кросс-проверка сгенерированных сертификатов через
+  `openssl verify` на реальной цепочке минцифры.
+
 ## Быстрый старт
 
 1. Откройте страницу генератора (GitHub Pages проекта) или скачайте
@@ -75,11 +91,12 @@ root будет переиспользован; при расширении сп
 - Репозиторий должен быть **публичным** (Pages для приватных репозиториев —
   только на платных планах). Публичность здесь и нужна: код страницы должен
   быть читаемым.
-- CI проверяет, что закоммиченный `docs/index.html` соответствует шаблону и
-  пину (`git diff --exit-code`); рассинхрон = падение теста. Список доменов
-  на странице обновляется обычным пушем `allowed-domains.txt`.
+- CI пересобирает страницу (`cd web && npm run build`) и проверяет, что
+  закоммиченный `docs/index.html` соответствует исходникам и параметрам
+  (`git diff --exit-code`); рассинхрон = падение теста. Список доменов на
+  странице обновляется обычным пушем `allowed-domains.txt`.
 - Не доверяете сборке — используйте локальный `docs/index.html`: он
-  функционально идентичен и работает офлайн.
+  функционально идентичен и работает офлайн. Исходники для проверки — `web/src`.
 
 ## Установка
 
@@ -128,14 +145,58 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
   proxy удалить из хранилища «Промежуточные сертификаты».
 - macOS: `sudo security delete-certificate -c "restricted-russian-ca"`.
 
+## Как проверить сгенерированные сертификаты
+
+Перед установкой (и после — в любой момент) убедитесь openssl'ом, что
+сертификаты именно такие, как задуманы: ваше имя, нужный срок, ограничение
+доменов и совпадение ключа proxy с рутом минцифры.
+
+```bash
+# кто, кем выпущен и на какой срок
+openssl x509 -in root.crt -noout -subject -issuer -dates
+openssl x509 -in proxy.crt -noout -subject -issuer -dates
+
+# отпечаток root — сверьте со значением SHA256 из «Результата» на странице
+openssl x509 -in root.crt -noout -fingerprint -sha256
+
+# nameConstraints: critical, Permitted: DNS из вашего списка, Excluded: IP
+openssl x509 -in proxy.crt -noout -text | grep -A10 "Name Constraints"
+
+# публичный ключ proxy обязан совпадать с публичным ключом рута минцифры
+# (две команды должны выдать одинаковый хэш)
+openssl x509 -in proxy.crt -pubkey -noout | openssl sha256
+openssl x509 -in pinned/mincifry-root.crt -pubkey -noout | openssl sha256
+
+# цепочка: суб-CA минцифры проверяется вашим root + proxy
+openssl verify -CAfile root.crt -untrusted proxy.crt pinned/mincifry-sub-ca.crt
+#   → pinned/mincifry-sub-ca.crt: OK
+# и без proxy цепочка НЕ собирается (рут минцифры в trust store не ставится):
+openssl verify -CAfile root.crt pinned/mincifry-sub-ca.crt
+#   → error ... unable to get local issuer certificate
+```
+
+Проверка живого сайта после установки (пример — доверенный домен):
+
+```bash
+# proxy.crt нужен цепочке как промежуточный — подаём оба файла одним бандлом
+cat root.crt proxy.crt > bundle.pem
+openssl s_client -connect gosuslugi.ru:443 -servername gosuslugi.ru \
+  -CAfile bundle.pem </dev/null 2>/dev/null | grep "Verify return"
+# → Verify return code: 0 (ok)
+# домен вне списка даст ошибку проверки — это ограничение работает как задумано
+```
+
+Те же команды продублированы на странице генератора (блок «Как проверить
+сгенерированные сертификаты»).
+
 ## Threat model (кому вы доверяете)
 
 - **Без проекта**: установив рут минцифры целиком, вы доверяете держателю
   его ключа подпись любого контента для любых сайтов.
-- **С проектом**: вы доверяете (а) коду статической страницы — читайте его,
-  он один файл, (b) запиненному сертификату рута минцифры — SHA256
-  сверяется при каждой генерации, (c) себе — приватный ключ `root.pem`
-  храните вы.
+- **С проектом**: вы доверяете (а) коду страницы — исходники маленькие и
+  читаемые (`web/src`), собираются детерминированно, (b) запиненному
+  сертификату рута минцифры — SHA256 сверяется при каждой генерации, (c)
+  себе — приватный ключ `root.pem` храните вы.
 - **Остаточный риск**: владелец вашего ключа `root.pem` сможет выпускать
   сертификаты только для доменов из списка (NC ограничивают и root, и proxy);
   компрометация ключа минцифры ограничена тем же списком. Клиенты, не
@@ -165,21 +226,31 @@ python3 scripts/generate.py --domains allowed-domains.txt \
   --upstream pinned/mincifry-root.crt --out out
 python3 scripts/verify.py          # self-tests
 python3 scripts/verify.py --e2e    # + живые сайты (нужна сеть)
-python3 scripts/build_pages.py     # пересобрать docs/index.html из шаблона
+```
+
+Сборка и тесты страницы — обычный JS-проект (нужен Node.js 20+):
+
+```bash
+cd web
+npm ci         # установка зависимостей (pkijs, asn1js, esbuild, vitest)
+npm test       # unit-тесты + openssl-кросс-проверка + дымовой тест страницы
+npm run build  # пересобрать docs/index.html из web/src и параметров репозитория
 ```
 
 ## Структура репозитория
 
 | Путь | Назначение |
 |---|---|
-| `docs/index.html.template` + `scripts/build_pages.py` | исходник страницы генератора |
-| `docs/index.html` | собранная страница (с вшитым пином) |
-| `allowed-domains.txt` | дефолтный список доменов |
+| `web/src/` | исходники страницы: `ca.js`, `upstream.js`, `domains.js`, `main.js`, `ui.js`, `index.html`, `style.css` |
+| `web/build.mjs`, `web/gen-params.mjs` | сборка `docs/index.html` и внедрение параметров репозитория |
+| `web/test/` | тесты: домены, пин, генерация, openssl-кросс-проверка, дымовой тест страницы |
+| `docs/index.html` | собранная страница (самодостаточная, работает офлайн) |
+| `allowed-domains.txt` | дефолтный список доменов (единственный источник для страницы и CLI) |
 | `pinned/mincifry-root.crt`, `pinned/mincifry-sub-ca.crt` | эталонные сертификаты минцифры |
 | `pinned-fingerprints.json` | отпечаток + источники для drift-check |
 | `scripts/generate.py` | CLI-генерация (root + proxy) |
 | `scripts/verify.py` | self-tests (иерархия, реальная цепочка, E2E) |
-| `.github/workflows/ci.yml` | тесты, drift-check, деплой Pages |
+| `.github/workflows/ci.yml` | JS- и Python-тесты, drift-check, деплой Pages |
 
 ## FAQ
 
@@ -202,5 +273,3 @@ python3 scripts/build_pages.py     # пересобрать docs/index.html из
 - Подход «cross-sign рута минцифры с nameConstraints»: [rodion-gudz/ru-certs](https://github.com/rodion-gudz/ru-certs), [dgavrilov/rucert](https://github.com/dgavrilov/rucert)
 - Копии сертификатов и данные CT-логов: [koenrh/russian-trusted-root-ca](https://github.com/koenrh/russian-trusted-root-ca)
 - Официальная страница сертификата: [gosuslugi.ru/landing/crt](https://www.gosuslugi.ru/landing/crt)
-
-Детали дизайна и принятые решения — в [project.md](project.md).

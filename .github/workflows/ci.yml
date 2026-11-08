@@ -29,32 +29,26 @@ jobs:
           openssl version
           python3 --version
 
-      - name: Validate allowed-domains.txt
-        run: |
-          python3 - <<'EOF'
-          import re, sys
-          text = open("allowed-domains.txt", encoding="utf-8").read()
-          domains = []
-          for raw in text.splitlines():
-              line = raw.split("#", 1)[0].strip()
-              if not line:
-                  continue
-              if not re.fullmatch(r"(\*\.)?[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.?", line):
-                  sys.exit(f"invalid domain line: {line!r}")
-              domains.append(line)
-          if not domains:
-              sys.exit("domain list is empty")
-          print(f"{len(domains)} domains: OK")
-          EOF
-
       - name: Self-tests (hierarchy + real pinned chain)
         run: python3 scripts/verify.py
 
-      - name: Build pages from template
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: JS tests + build page
         run: |
-          python3 scripts/build_pages.py
+          cd web
+          npm ci
+          npm test
+          npm run build
+
+      - name: Check docs/index.html is up to date
+        run: |
           git diff --exit-code -- docs/index.html || {
-            echo "::error::docs/index.html is out of date with the template/pinned cert — run scripts/build_pages.py and commit"
+            echo "::error::docs/index.html is out of date with web/src and repo params — run 'cd web && npm run build' and commit"
             exit 1
           }
 

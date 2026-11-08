@@ -1,0 +1,20 @@
+{
+  "name": "restricted-russian-ca-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Генератор ограниченного сертификата минцифры: сборка и тесты статической страницы",
+  "scripts": {
+    "gen": "node gen-params.mjs",
+    "build": "node build.mjs",
+    "test": "node gen-params.mjs && vitest run"
+  },
+  "dependencies": {
+    "asn1js": "^4.0.0",
+    "pkijs": "^4.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "vitest": "^3.0.0"
+  }
+}
