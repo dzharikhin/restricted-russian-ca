@@ -76,7 +76,7 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
     </details>
     <details><summary>Android — <b>не устанавливайте</b>: ограничение не работает</summary>
       <p>На Android ограничение списка доменов <b>не действует</b>: любой пользовательский ЦС
-      становится доверенным якорем, а Chrome не применяет <code>nameConstraints</code> из якоря.
+      становится доверенным корнем, а Chrome не применяет <code>nameConstraints</code> доверенного корня.
       Установка нашего proxy на Android фактически равна установке оригинальной цепочки минцифры:
       открываться будут <b>все</b> сайты, подписанные рут-ключом минцифры, а не только из списка.</p>
       <p class="hint">Канарейка: сайт на цепочке минцифры вне списка (например, mkb.ru) на Android
@@ -84,7 +84,7 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
       upstream-issues — в README репозитория.</p>
       <p class="hint">Альтернатива для .ru/.рф/.su без установки сертификатов в систему:
       <a href="https://github.com/rutheniumteam/ruthenium-android">Ruthenium</a> — сборка Chromium для Android,
-      в которой рут минцифры встроен как якорь, ограниченный этими зонами.</p>
+      в которой рут минцифры встроен как доверенный корень, ограниченный этими зонами.</p>
       <p>Если всё же устанавливаете осознанно: Настройки → Безопасность → Ещё → Шифрование и учётные данные →
       <b>Установить сертификат → Сертификат ЦС</b> → <code>root.crt</code>, затем <code>proxy.crt</code>
       (названия пунктов у вендоров отличаются); потребуется PIN, предупреждение «Сеть может отслеживаться» —

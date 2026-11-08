@@ -160,7 +160,7 @@ it("openssl: выпущенные сертификаты имеют ожидае
   expect(text).toContain("DNS:gosuslugi.ru");
 });
 
-it("openssl: pathlen root=3 и proxy=2 (Android строит цепочку с самоподписанным рутом минцифры под якорем-proxy)", async () => {
+it("openssl: pathlen root=3 и proxy=2 (Android строит цепочку с самоподписанным рутом минцифры под доверенным корнем-proxy)", async () => {
   const { root, proxy } = await makeBundle();
   const tmp = mkdtempSync(resolve(tmpdir(), "rrca-test-"));
   const rootPath = resolve(tmp, "root.crt");

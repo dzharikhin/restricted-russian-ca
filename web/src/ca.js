@@ -146,7 +146,7 @@ export async function issueRootCert({ privateKey, spki, domains, days = null }) 
  * Выпускает name-constrained proxy: носит subject и публичный ключ рута
  * минцифры, но подписан личным root; критические basicConstraints (pathlen 2 —
  * покрывает рут минцифры + sub CA, который часть клиентов оставляет в цепочке,
- * а на Android proxy и вовсе становится доверенным якорем), keyUsage, SKI/AKI
+ * а на Android proxy и вовсе становится доверенным корнем), keyUsage, SKI/AKI
  * и то же nameConstraints. Оригинальный рут при этом нигде не устанавливается.
  */
 export async function issueProxyCert({ rootPrivateKey, rootCert, mincifryCert, domains, days = null }) {
