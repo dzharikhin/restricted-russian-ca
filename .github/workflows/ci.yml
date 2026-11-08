@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # нужен для сравнения штампа сборки с HEAD
 
       - name: Check toolchain
         run: |
@@ -43,12 +45,21 @@ jobs:
           cd web
           npm ci
           npm test
-          npm run build
 
-      - name: Check docs/index.html is up to date
+      - name: Check docs/index.html matches its build stamp
         run: |
+          commit=$(grep -o 'data-commit="[0-9a-f]*"' docs/index.html | head -1 | cut -d'"' -f2)
+          if [ -z "$commit" ]; then
+            echo "::error::в docs/index.html нет штампа сборки — запустите 'cd web && npm run release'"
+            exit 1
+          fi
+          git diff --quiet "$commit" HEAD -- web allowed-domains.txt pinned pinned-fingerprints.json || {
+            echo "::error::исходники изменились после штампа ($commit) — запустите 'cd web && npm run release'"
+            exit 1
+          }
+          ( cd web && npm run build -- --commit "$commit" --repo "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" )
           git diff --exit-code -- docs/index.html || {
-            echo "::error::docs/index.html is out of date with web/src and repo params — run 'cd web && npm run build' and commit"
+            echo "::error::docs/index.html не совпадает с пересборкой из штампа $commit — запустите 'cd web && npm run release'"
             exit 1
           }
 

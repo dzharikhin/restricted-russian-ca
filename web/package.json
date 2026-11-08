@@ -7,6 +7,7 @@
   "scripts": {
     "gen": "node gen-params.mjs",
     "build": "node build.mjs",
+    "release": "node release.mjs",
     "test": "node gen-params.mjs && vitest run"
   },
   "dependencies": {
