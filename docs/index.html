@@ -47,13 +47,13 @@
   <p class="dim">Личный root CA + name-constrained proxy корня «Russian Trusted Root CA».
   Доверие минцифре только для доменов из вашего списка. Всё генерируется локально в браузере —
   ключи никуда не отправляются. Исходники страницы — в каталоге <code>web/src</code> репозитория проекта.</p>
-  <div class="dim" data-commit="44da2e4b26b6a896adfe290dc3ba5a9cfd980682" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
-  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/44da2e4b26b6a896adfe290dc3ba5a9cfd980682">репозиторий @ 44da2e4</a> —
+  <div class="dim" data-commit="45a5bce855d09995daece22297f73fcaba05f952" data-repo="https://github.com/dzharikhin/restricted-russian-ca">
+  Сборка: <a style="color:var(--accent)" href="https://github.com/dzharikhin/restricted-russian-ca/commit/45a5bce855d09995daece22297f73fcaba05f952">репозиторий @ 45a5bce</a> —
   страница собирается из исходников детерминированно.
   <details><summary>Сверить байт-в-байт</summary>
   <pre>git clone https://github.com/dzharikhin/restricted-russian-ca
-cd restricted-russian-ca && git checkout 44da2e4
-cd web && npm ci && npm run build -- --commit 44da2e4b26b6a896adfe290dc3ba5a9cfd980682 --repo https://github.com/dzharikhin/restricted-russian-ca
+cd restricted-russian-ca && git checkout 45a5bce
+cd web && npm ci && npm run build -- --commit 45a5bce855d09995daece22297f73fcaba05f952 --repo https://github.com/dzharikhin/restricted-russian-ca
 cmp docs/index.html &lt;скачанная страница&gt;</pre>
   </details>
 </div>
@@ -125,6 +125,9 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
       не устанавливаются). Канарейка: сайт на цепочке минцифры вне списка (например, mkb.ru) на Android
       откроется без предупреждения — на десктопе выдаст ошибку сертификата. Подробности и отслеживаемые
       upstream-issues — в README репозитория.</p>
+      <p class="hint">Альтернатива для .ru/.рф/.su без установки сертификатов в систему:
+      <a href="https://github.com/rutheniumteam/ruthenium-android">Ruthenium</a> — сборка Chromium для Android,
+      в которой рут минцифры встроен как якорь, ограниченный этими зонами.</p>
       <p>Если всё же устанавливаете осознанно: Настройки → Безопасность → Ещё → Шифрование и учётные данные →
       <b>Установить сертификат → Сертификат ЦС</b> → <code>root.crt</code>, затем <code>proxy.crt</code>
       (названия пунктов у вендоров отличаются); потребуется PIN, предупреждение «Сеть может отслеживаться» —
