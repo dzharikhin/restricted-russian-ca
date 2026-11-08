@@ -167,7 +167,7 @@ def issue_root_cert(key_path: Path, domains: list[str], days: int | None, tmp: P
         tmp,
         [
             "[ext]",
-            "basicConstraints=critical,CA:true,pathlen:2",
+            "basicConstraints=critical,CA:true,pathlen:3",
             "keyUsage=critical,keyCertSign,cRLSign",
             "subjectKeyIdentifier=hash",
         ]
@@ -208,7 +208,7 @@ def issue_proxy_cert(
         tmp,
         [
             "[ext]",
-            "basicConstraints=critical,CA:true,pathlen:1",
+            "basicConstraints=critical,CA:true,pathlen:2",
             "keyUsage=critical,keyCertSign,cRLSign",
             "subjectKeyIdentifier=hash",
             "authorityKeyIdentifier=keyid",
