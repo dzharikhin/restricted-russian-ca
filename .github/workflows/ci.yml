@@ -26,24 +26,27 @@ jobs:
         with:
           fetch-depth: 0  # нужен для сравнения штампа сборки с HEAD
 
-      - name: Check toolchain
-        run: |
-          openssl version
-          python3 --version
-
-      - name: Self-tests (hierarchy + real pinned chain)
-        run: python3 scripts/verify.py
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Check toolchain
+        run: |
+          openssl version
+          python3 --version
+          node --version
+
+      - name: Install web dependencies (нужны и JS-тестам, и verify.py)
+        run: cd web && npm ci
+
+      - name: Cross-validation of JS impl (hierarchy + real pinned chain)
+        run: python3 scripts/verify.py
+
       - name: JS tests + build page
         run: |
           cd web
-          npm ci
           npm test
 
       - name: Check docs/index.html matches its build stamp
@@ -68,6 +71,15 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: cd web && npm ci
 
       - name: Verify pinned fingerprint against known sources
         run: |

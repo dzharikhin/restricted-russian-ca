@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Self-tests for restricted-russian-ca.
+"""Cross-validation of the JS implementation (web/generate.mjs) with an
+independent stack: Python stdlib + openssl CLI.
 
-Verifies the name-constrained proxy architecture:
+Generation happens once, in JS — the same code the browser page runs
+(web/src/ca.js). This script never generates certificates itself (except
+openssl-made throwaway leaves used to probe name constraint behavior) and
+instead validates the CLI output with openssl's independent PKIX engine:
+
   1. test hierarchy (fake upstream in the shape of the real one): an allowed
      domain validates through root -> proxy -> subCA -> leaf, a blocked domain
      fails with a permitted-subtree violation, IP-SAN leaves are rejected;
@@ -10,7 +15,9 @@ Verifies the name-constrained proxy architecture:
   3. optional live E2E (--e2e): a real TLS handshake is verified against the
      generated bundle.
 
-Requires Python 3 stdlib and openssl CLI. Network access is needed only for --e2e.
+Used by CI on every push (and weekly with --e2e). Requires Node.js 20+ with
+`cd web && npm ci` (the CLI needs pkijs), Python 3 stdlib and the openssl CLI.
+Network access is needed only for --e2e.
 """
 
 import argparse
@@ -20,9 +27,8 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import generate as gen  # noqa: E402
+JS_CLI = REPO / "web" / "generate.mjs"
 
 FAKE_UPSTREAM_SUBJ = "/CN=Russian Trusted Root CA/O=The Ministry of Digital Development and Communications/C=RU"
 FAKE_SUBCA_SUBJ = "/CN=Russian Trusted Sub CA/O=The Ministry of Digital Development and Communications/C=RU"
@@ -47,6 +53,12 @@ def run(cmd: list[str], stdin: bytes | None = None) -> subprocess.CompletedProce
 
 def openssl(*args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
     return run(["openssl", *args], stdin=stdin)
+
+
+def js_generate(domains_file: Path, upstream: Path, out: Path) -> subprocess.CompletedProcess:
+    """Генерация через JS CLI (web/generate.mjs) — тот же код, что и на странице."""
+    return run(["node", str(JS_CLI),
+                "--domains", str(domains_file), "--upstream", str(upstream), "--out", str(out)])
 
 
 def gen_key(path: Path) -> None:
@@ -119,11 +131,8 @@ def test_hierarchy(tmp: Path) -> None:
     domains_file = tmp / "domains.txt"
     domains_file.write_text("allowed.example\n")
     out = tmp / "out"
-    r = run(
-        [sys.executable, str(REPO / "scripts" / "generate.py"),
-         "--domains", str(domains_file), "--upstream", str(up_cert), "--out", str(out)]
-    )
-    check("generate.py succeeded", r.returncode == 0, r.stderr.decode().strip()[:120] if r.returncode else "")
+    r = js_generate(domains_file, up_cert, out)
+    check("js CLI (web/generate.mjs) succeeded", r.returncode == 0, r.stderr.decode().strip()[:120] if r.returncode else "")
     if r.returncode != 0:
         return
 
@@ -185,11 +194,8 @@ def test_hierarchy(tmp: Path) -> None:
     real_domains = tmp / "real-domains.txt"
     real_domains.write_text("gosuslugi.ru\ncbr.ru\nvtb.ru\n")
     real_out = tmp / "real-out"
-    r = run(
-        [sys.executable, str(REPO / "scripts" / "generate.py"),
-         "--domains", str(real_domains), "--upstream", str(pinned_root), "--out", str(real_out)]
-    )
-    check("generate.py succeeded on pinned upstream", r.returncode == 0,
+    r = js_generate(real_domains, pinned_root, real_out)
+    check("js CLI succeeded on pinned upstream", r.returncode == 0,
           r.stderr.decode().strip()[:120] if r.returncode else "")
     if r.returncode != 0:
         return
@@ -218,10 +224,7 @@ def test_e2e(tmp: Path) -> None:
     domains_file = tmp / "e2e-domains.txt"
     domains_file.write_text("cbr.ru\nvtb.ru\n")
     out = tmp / "e2e-out"
-    r = run(
-        [sys.executable, str(REPO / "scripts" / "generate.py"),
-         "--domains", str(domains_file), "--upstream", str(pinned_root), "--out", str(out)]
-    )
+    r = js_generate(domains_file, pinned_root, out)
     if r.returncode != 0:
         check("e2e generate", False, r.stderr.decode()[:120])
         return
@@ -272,12 +275,21 @@ def _der_to_pem(der: bytes) -> str:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Self-tests for restricted-russian-ca")
+    ap = argparse.ArgumentParser(description="Cross-validation of web/generate.mjs with openssl (CI)")
     ap.add_argument("--e2e", action="store_true", help="also run live network tests (cbr.ru, vtb.ru)")
     args = ap.parse_args()
 
     if shutil_which("openssl") is None:
         print("ERROR: openssl CLI not found", file=sys.stderr)
+        sys.exit(2)
+    if shutil_which("node") is None:
+        print("ERROR: node not found — JS CLI (web/generate.mjs) requires Node.js 20+", file=sys.stderr)
+        sys.exit(2)
+    if not JS_CLI.exists():
+        print(f"ERROR: {JS_CLI} not found", file=sys.stderr)
+        sys.exit(2)
+    if not (REPO / "web" / "node_modules" / "pkijs").exists():
+        print("ERROR: web/node_modules is empty — run `cd web && npm ci` first", file=sys.stderr)
         sys.exit(2)
 
     with tempfile.TemporaryDirectory(prefix="rrca-verify-") as tmp_name:

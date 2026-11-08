@@ -40,7 +40,8 @@ trust store девайса
 - `web/src/` — исходники страницы: `ca.js` (выпуск root + proxy поверх
   WebCrypto и pkijs/asn1js), `upstream.js` (проверка пина рута минцифры),
   `domains.js` (нормализация списка), `main.js`/`ui.js` (DOM), `index.html`
-  + `style.css`. Низкоуровневые ASN.1/DER — библиотеки [pkijs](https://github.com/PeculiarVentures/PKI.js)
+  + `style.css`. Те же модули использует CLI-генератор `web/generate.mjs` —
+  одна реализация для страницы и терминала. Низкоуровневые ASN.1/DER — библиотеки [pkijs](https://github.com/PeculiarVentures/PKI.js)
   и [asn1js](https://github.com/PeculiarVentures/asn1.js) (BSD-3-Clause),
   ключи и подписи — нативный WebCrypto браузера.
 - `cd web && npm run build` собирает один самодостаточный `docs/index.html`:
@@ -281,16 +282,28 @@ CN=Russian Trusted Root CA`, 2022—2032).
 
 ## CLI (для продвинутых)
 
-Без зависимостей: Python 3 + OpenSSL CLI.
+Генерация из терминала — **та же реализация, что и на странице** (`web/src/ca.js`):
+одна кодовая база, никакой рассинхронизации. Нужен Node.js 20+; зависимости
+ставятся один раз (`cd web && npm ci`).
 
 ```bash
-python3 scripts/generate.py --domains allowed-domains.txt \
-  --upstream pinned/mincifry-root.crt --out out
-python3 scripts/verify.py          # self-tests
+node web/generate.mjs --domains allowed-domains.txt --out out
+#   --root-pem out/root.pem   переиспользовать root (при расширении списка —
+#                             перевыпуск сертификата на том же ключе)
+#   --days N                  срок действия (по умолчанию бессрочно)
+node web/generate.mjs           # значения по умолчанию: allowed-domains.txt → out/
+```
+
+Отпечаток эталонного рута минцифры сверяется с `pinned-fingerprints.json`
+(расхождение = отказ). Кросс-проверка JS-реализации независимым стеком
+(Python 3 + OpenSSL CLI) — используется в CI:
+
+```bash
+python3 scripts/verify.py          # иерархия, nameConstraints, реальная цепочка
 python3 scripts/verify.py --e2e    # + живые сайты (нужна сеть)
 ```
 
-Сборка и тесты страницы — обычный JS-проект (нужен Node.js 20+):
+Сборка и тесты страницы — обычный JS-проект:
 
 ```bash
 cd web
@@ -310,8 +323,8 @@ npm run build  # пересобрать docs/index.html из web/src и пара
 | `allowed-domains.txt` | дефолтный список доменов (единственный источник для страницы и CLI) |
 | `pinned/mincifry-root.crt`, `pinned/mincifry-sub-ca.crt` | эталонные сертификаты минцифры |
 | `pinned-fingerprints.json` | отпечаток + источники для drift-check |
-| `scripts/generate.py` | CLI-генерация (root + proxy) |
-| `scripts/verify.py` | self-tests (иерархия, реальная цепочка, E2E) |
+| `web/generate.mjs` | CLI-генерация (та же реализация, что и страница; `npm run cert` из `web/`) |
+| `scripts/verify.py` | кросс-проверка JS-реализации через openssl (иерархия, реальная цепочка, E2E; CI) |
 | `.github/workflows/ci.yml` | JS- и Python-тесты, drift-check, деплой Pages |
 
 ## FAQ
