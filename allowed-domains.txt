@@ -8,3 +8,5 @@ gosuslugi.ru
 cbr.ru
 vtb.ru
 alfabank.ru
+tinkoff.ru
+sberbank.ru

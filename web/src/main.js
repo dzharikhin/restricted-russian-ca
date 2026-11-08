@@ -106,7 +106,7 @@ async function generate() {
     ui.showDownloads([
       {
         name: "root.pem",
-        hint: "— приватный ключ + сертификат root. Хранить в безопасности!",
+        hint: "— приватный ключ + сертификат root. Хранить в безопасности, НЕ устанавливать!",
         content: derToPem(new Uint8Array(pkcs8), "PRIVATE KEY") + certToPem(rootCert),
       },
       { name: "root.crt", hint: "— сертификат root для установки", content: certToPem(rootCert) },

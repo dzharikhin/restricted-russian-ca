@@ -131,3 +131,16 @@ it("openssl: выпущенные сертификаты имеют ожидае
   expect(text).toContain("9999 GMT"); // бессрочный: до 9999-12-31
   expect(text).toContain("DNS:gosuslugi.ru");
 });
+
+it("openssl: pathlen root=3 и proxy=2 (Android строит цепочку с самоподписанным рутом минцифры под якорем-proxy)", async () => {
+  const { root, proxy } = await makeBundle();
+  const tmp = mkdtempSync(resolve(tmpdir(), "rrca-test-"));
+  const rootPath = resolve(tmp, "root.crt");
+  const proxyPath = resolve(tmp, "proxy.crt");
+  writeFileSync(rootPath, certToPem(root));
+  writeFileSync(proxyPath, certToPem(proxy));
+  const rootBc = openssl("x509", "-in", rootPath, "-noout", "-ext", "basicConstraints");
+  const proxyBc = openssl("x509", "-in", proxyPath, "-noout", "-ext", "basicConstraints");
+  expect(rootBc).toContain("pathlen:3");
+  expect(proxyBc).toContain("pathlen:2");
+});

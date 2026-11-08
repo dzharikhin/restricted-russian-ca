@@ -115,7 +115,9 @@ async function keyId(spki) {
 
 /**
  * Выпускает личный root CA (самоподписанный): критические basicConstraints
- * (pathlen 2), keyUsage, SKI и nameConstraints по списку доменов.
+ * (pathlen 3 — покрывает самую глубокую цепочку root → proxy → рут минцифры
+ * → sub CA → leaf, которую часть клиентов строит, когда сайт отдаёт самоподписанный
+ * рут минцифры в handshake), keyUsage, SKI и nameConstraints по списку доменов.
  * spki — SPKI ключа: свежий (publicKeyInfoFromKey) или из переиспользуемого
  * сертификата (пере выпуск на том же ключе).
  */
@@ -128,7 +130,7 @@ export async function issueRootCert({ privateKey, spki, domains, days = null }) 
     subjectPublicKeyInfo: spki,
     ...validity(days),
     extensions: [
-      makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 2 })),
+      makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 3 })),
       keyUsageExt(),
       makeExtension(OID.ski, false, new asn1js.OctetString({ valueHex: await keyId(spki) })),
       nameConstraintsExt(domains),
@@ -140,9 +142,10 @@ export async function issueRootCert({ privateKey, spki, domains, days = null }) 
 
 /**
  * Выпускает name-constrained proxy: носит subject и публичный ключ рута
- * минцифры, но подписан личным root; критические basicConstraints (pathlen 1),
- * keyUsage, SKI/AKI и то же nameConstraints. Оригинальный рут при этом
- * нигде не устанавливается.
+ * минцифры, но подписан личным root; критические basicConstraints (pathlen 2 —
+ * покрывает рут минцифры + sub CA, который часть клиентов оставляет в цепочке,
+ * а на Android proxy и вовсе становится доверенным якорем), keyUsage, SKI/AKI
+ * и то же nameConstraints. Оригинальный рут при этом нигде не устанавливается.
  */
 export async function issueProxyCert({ rootPrivateKey, rootCert, mincifryCert, domains, days = null }) {
   const cert = new Certificate({
@@ -153,7 +156,7 @@ export async function issueProxyCert({ rootPrivateKey, rootCert, mincifryCert, d
     subjectPublicKeyInfo: mincifryCert.subjectPublicKeyInfo,
     ...validity(days),
     extensions: [
-      makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 1 })),
+      makeExtension(OID.basicConstraints, true, new BasicConstraints({ cA: true, pathLenConstraint: 2 })),
       keyUsageExt(),
       makeExtension(OID.ski, false, new asn1js.OctetString({ valueHex: await keyId(mincifryCert.subjectPublicKeyInfo) })),
       makeExtension(OID.aki, false, new AuthorityKeyIdentifier({

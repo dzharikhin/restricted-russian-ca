@@ -64,6 +64,24 @@ certutil -addstore -f CA proxy.crt</pre>
       <pre>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain root.crt
 sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain proxy.crt</pre>
     </details>
+    <details><summary>Android</summary>
+      <p>Отдельного хранилища промежуточных сертификатов в Android нет: <b>оба</b> файла
+      устанавливаются по очереди как «Сертификат ЦС» и каждый становится доверенным якорем —
+      это нормально и работает. <code>root.pem</code> не устанавливать (приватный ключ).</p>
+      <ol>
+        <li>Настройки → Безопасность (и конфиденциальность) → Ещё → Шифрование и учётные данные →
+        <b>Установить сертификат → Сертификат ЦС</b> → выберите <code>root.crt</code>, затем повторите
+        для <code>proxy.crt</code>. Названия пунктов отличаются у вендоров (Samsung:
+        «Установить сертификат из хранилища устройства»). Android потребует задать PIN;
+        предупреждение «Сеть может отслеживаться» — норма для пользовательских ЦС.</li>
+        <li>Проверка: Настройки → Безопасность → Доверенные сертификаты → вкладка <b>«Пользователь»</b> —
+        должны появиться обе записи; у записи про минцифры «Кем выдан» — ваш личный root.</li>
+        <li>Полностью перезапустите Chrome: наберите в адресной строке <code>chrome://restart</code>.</li>
+        <li>Удаление: тот же экран «Доверенные сертификаты → Пользователь» → удалить обе записи →
+        снова <code>chrome://restart</code> и убедиться, что список опустел.</li>
+      </ol>
+      <p class="hint">Firefox на Android использует собственное хранилище сертификатов — эта схема к нему не применима.</p>
+    </details>
     <details><summary>Удаление</summary>
       <p>Linux: удалите <code>/usr/local/share/ca-certificates/restricted-ru-*.crt</code> и запустите <code>sudo update-ca-certificates --fresh</code>. Windows: <code>certutil -delstore Root "restricted-russian-ca Personal Root"</code> и удалите proxy из промежуточного хранилища. macOS: <code>sudo security delete-certificate -c "restricted-russian-ca"</code>.</p>
     </details>
